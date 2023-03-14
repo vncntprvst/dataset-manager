@@ -5,11 +5,11 @@
     1. Experimenter should download [templates/input_2photon.xlsx](templates/input_2photon.xlsx), complete spreadsheet with relevant information 
         about experiment (file in templates folder)
         * File locations for image stacks should be entered in 'src_folder_directory' column
-    3. Save input_2photon.xlsx in parent folder of data folders (as defined in #2 above) and copy [data-sharing/share.py](data-sharing/share.py) to same root folder
-    4. Activate python virtual environment
+    2. Save input_2photon.xlsx in parent folder of data folders (as defined in #2 above) and copy [data-sharing/share.py](data-sharing/share.py) to same root folder
+    3. Activate python virtual environment
         * (Windows) Run 'activate.ps1' in Scripts folder of virtual environment
         * (Linux/Mac) Run 'source activate' in bin folder of virtual environment
-    5. Run python share.py -i input_2photon.xlsx
+    4. Run python share.py -i input_2photon.xlsx
         * Note: The arguments passed to share.py change how it runs and where to find input (Excel) file
   
     
