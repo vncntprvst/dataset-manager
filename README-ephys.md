@@ -3,7 +3,7 @@
 ## Steps for running (manual):
 
     1. Experimenter should download [templates/input_ephys.xlsx](templates/input_ephys.xlsx), complete spreadsheet with relevant information 
-        about experiment (file in templates folder)
+        about experiment
         * File locations for image stacks should be entered in 'src_folder_directory' column
     2. Electrode measurements e.g. Intan should be provided as separate Excel workbook
         i.e., [templates/electrode_mappings.xlsx](templates/electrode_mappings.xlsx) should be populated 
