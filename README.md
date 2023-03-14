@@ -6,9 +6,18 @@ Currently supported experimental data is:
 1. Widefield Imaging (meta-data only)
 2. Extracellular electrophysiology (Intan -> NWB data conversion)
     + See [README-ephys.md](README-ephys.md) for detailed information
-3. Calcium imaging (WIP)
+3. 2 Photon Imaging (terminal)
+   + See [README-2photon.md](README-2photon.md) for detailed information
+4. Calcium imaging (WIP)
 
-## Steps for running (manual):
+## Steps for running (manual - terminal):
+
+    1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
+    2. Download and complete Excel sheet that most closely correponds to experiment
+    3. Run with 'python share.py' and add terminal arguments as needed
+
+
+## Steps for running (manual - Jupyter Notebook):
 
     1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
     2. Open jupyter notebook corresponding to experiment type
@@ -22,8 +31,9 @@ Note: You will need input.xlsx for electrophysiology experiments (sample coming)
 ---
 
 - Conversion for Intan format to NWB format
-- Integration with back-end relational database (in progress)
+- Integration with back-end relational database (in progress), NoSQL database (in progress)
 - Ability to aggregate NWB containers (for uploading to NIH-approved respositories)
+- Ability to add tif image stacks to NWB files
 
 ## Installation
 
@@ -56,3 +66,6 @@ drinehart[at]ucsd.edu
 
 ---
 The project is licensed under the [MIT license](https://mit-license.org/).
+
+---
+Last update: 14-MAR-2023
