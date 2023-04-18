@@ -1,38 +1,49 @@
-# CREATED: 14-FEB-2023
-# LAST EDIT: 11-APR-2023
+# CREATED: 11-APR-2023
+# LAST EDIT: 18-APR-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
-'''IMPLEMENTS INTERFACE BETWEEN LOCAL EXPERIMENTAL DATA (AND META-DATA) AND REMOTE DATA SHARING PORTAL FOR U19 GRANT INSTITUTIONS'''
+'''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
 
-import os, sys, math, time, pynwb
+import os, sys, math, time, pynwb, re
 from pynwb.ophys import OpticalChannel, TwoPhotonSeries, ImagingPlane
 import argparse
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from dateutil.tz import tzlocal
-from pathlib import Path
+from pathlib import Path, PurePath
 from ast import literal_eval
 import tifffile
+
+current = os.path.dirname(os.path.realpath(__file__))
+parent = os.path.dirname(current)
+sys.path.append(parent)
+from ConvertIntanToNWB import convert_to_nwb
 
 #################################################################
 # APP CONSTANTS (DEFAULT)
 output_path = Path(os.getcwd(), 'output')
-# debug = True
-
-experimenter = 'Yao, Pantong'
-institution = 'UC San Diego'
+experiment_modality = 1 #ephys
 experiment_description = None #string or null
-keywords = ['Researchers: ' + str(experimenter)]
+# debug = True
 #################################################################
 
 def displayMenu():
     print('DATA SHARING COMMAND LINE INTERFACE\n')
+    print('SEE REPOSITORY (https://github.com/ActiveBrainAtlas2/nwb) OR EVALUATE CODE FOR ARGUMENTS\n')
 
 
 def collectArguments():
     argParser = argparse.ArgumentParser()
     argParser.add_argument("-i", "--input_file", help="Input file (.xlsx) containing experimental parameters/data locations")
+    argParser.add_argument("-o", "--output_path",
+                           help="Output folder/path where converted nwb files will be stored")
+    argParser.add_argument("-exp", "--experiment_modality",
+                           help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=fMRI")
+    argParser.add_argument("-researcher", "--researcher_experimenter",
+                           help="Name(s) of researcher/experimenter")
+    argParser.add_argument("-institution", "--institution",
+                           help="Name of institution")
     args = argParser.parse_args()
     return args
 
@@ -40,61 +51,141 @@ def collectArguments():
 def displayParam(args):
     print("*"*40)
     print("USING THE FOLLOWING PARAMETERS:\n")
-    print(f'INPUT FILE: {args.input_file} [PATH RELATIVE TO CURRENT DIRECTORY]\n')
-    print(f'OUTPUT FOLDER: {output_path}')
+    print(f'INPUT FILE: {args.input_file} [ABSOLUTE PATH OR PATH RELATIVE TO CURRENT DIRECTORY]\n')
+
+    global output_path #MODIFY GLOBAL VARIABLE FROM WITHIN FUNCTION
+    if not args.output_path:
+        print(f'OUTPUT FOLDER: {output_path} [DEFAULT: CURRENT WORKING DIRECTORY]\n')
+    else:
+        print(f'OUTPUT FOLDER: {args.output_path} [PASSED ARGUMENT]\n')
+        output_path = args.output_path
+
+    global experiment_modality
+    experiment_modality_text = 'extracellular electrophysiology'
+    if args.experiment_modality:#ONLY CHANGE FROM DEFAULT IF ARGUMENT PASSED IN
+        if args.experiment_modality == "1":
+            experiment_modality_text = 'extracellular electrophysiology'
+        elif args.experiment_modality == "2":
+            experiment_modality_text = 'Widefield Imaging'
+        elif args.experiment_modality == "3":
+            experiment_modality_text = '2Photon Imaging'
+        else:
+            experiment_modality_text = 'fMRI'
+        experiment_modality = args.experiment_modality
+    print(f'EXPERIMENT MODALITY: {experiment_modality_text}\n')
+
+    global researcher_experimenter
+    if args.researcher_experimenter:
+        researcher_experimenter = args.researcher_experimenter
+    else:
+        researcher_experimenter = ""
+    print(f'RESEARCHER/EXPERIMENTER: {researcher_experimenter}\n')
+
+    global institution
+    if args.institution:
+        institution = args.institution
+    else:
+        institution = ""
+    print(f'INSTITUTION: {institution}\n')
     print("*" * 40)
 
+    return args.input_file
 
-def load_data(input_file):
+
+def load_data(input_file, experiment_modality):
     '''Used for meta-data loading'''
-    lstNWBFields = [
-        'session_id',
-        'subject_id',
-        'age',
-        'subject_description',
-        'genotype',
-        'sex',
-        'species',
-        'subject_weight',
-        'subject_strain',
-        'date_of_birth(YYYY-MM-DD)',
-        'session_description',
-        'src_folder_directory',
-        'stimulus_notes_include',
-        'stimulus_notes_paradigm',
-        'stimulus_notes_direct_electrical_stimulation',
-        'stimulus_notes_direct_electrical_stimulation_paradigm',
-        'pharmacology_notes_anesthetized_during_recording',
-        'pharmacology',
-        'anesthesia_acute_chronic',
-        'anesthesia_chronic_days_post_admin',
-        'device_name',
-        'device_description',
-        'device_manufacturer',
-        'optical_channel_name',
-        'optical_channel_description',
-        'optical_channel_emission_lambda',
-        'image_stack_name',
-        'image_stack_imaging_rate',
-        'image_stack_description',
-        'image_stack_exitation_lambda',
-        'image_stack_indicator',
-        'image_stack_location',
-        'image_stack_grid_spacing',
-        'image_stack_grid_spacing_unit'
-    ]  # headers I need
 
-    lstExtractionFields = pd.read_excel(input_file, sheet_name="auto", usecols=lstNWBFields) #just extract columns/fields I need
+    #DEFINE COMMONG FIELDS AMONG ALL DATASETS (EXCEL COLUMN HEADERS)
+    commonFields = ['session_id',
+                    'subject_id',
+                    'age',
+                    'subject_description',
+                    'genotype',
+                    'sex',
+                    'species',
+                    'subject_weight',
+                    'subject_strain',
+                    'date_of_birth(YYYY-MM-DD)',
+                    'session_description',
+                    'src_folder_directory',
+                    ]
+
+    #FIELD LIST RELATIVE TO EXPERIMENT MODALITY
+    if experiment_modality == "1":
+        exp_modality_specific_fields = [
+            'stimulus_notes_include',
+            'stimulus_notes_paradigm',
+            'stimulus_notes_direct_electrical_stimulation',
+            'stimulus_notes_direct_electrical_stimulation_paradigm',
+            'pharmacology_notes_anesthetized_during_recording',
+            'pharmacology',
+            'electrode_device_name',
+            'electrode_recordings',
+            'electrode_recordings_type',
+            'electrode_recordings_contact_material',
+            'electrode_recordings_substrate',
+            'electrode_recordings_system',
+            'electrode_recordings_location',
+            'electrode_filtering',
+            'identifier']
+    elif experiment_modality == "3":
+        exp_modality_specific_fields = [
+            'stimulus_notes_include',
+            'stimulus_notes_paradigm',
+            'stimulus_notes_direct_electrical_stimulation',
+            'stimulus_notes_direct_electrical_stimulation_paradigm',
+            'pharmacology_notes_anesthetized_during_recording',
+            'pharmacology',
+            'anesthesia_acute_chronic',
+            'anesthesia_chronic_days_post_admin',
+            'device_name',
+            'device_description',
+            'device_manufacturer',
+            'optical_channel_name',
+            'optical_channel_description',
+            'optical_channel_emission_lambda',
+            'image_stack_name',
+            'image_stack_imaging_rate',
+            'image_stack_description',
+            'image_stack_exitation_lambda',
+            'image_stack_indicator',
+            'image_stack_location',
+            'image_stack_grid_spacing',
+            'image_stack_grid_spacing_unit'
+        ]
+    elif experiment_modality == "2" or experiment_modality == "4":
+        print("WARNING: experiment modality not complete")
+        exp_modality_specific_fields = []
+
+
+    #APPEND EXPERIMENT MODALITY SPECFIC FIELDS TO COMMON LIST
+    lstNWBFields = commonFields + exp_modality_specific_fields
+
+    try:
+        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto", usecols=lstNWBFields) #just extract columns/fields I need
+        matched_fields = lstNWBFields
+    except ValueError:
+        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto")  # read fine 'as is'
+
+        fields_in_file = lstExtractionFields.columns.tolist()
+        matched_fields = list(set(fields_in_file).intersection(lstNWBFields))
+
+        print(f"IMPORT WARNING [SOME FIELDS NOT MATCHED] - NWB FIELD COUNT {len(lstNWBFields)}; IMPORT SHEET FIELD COUNT {len(fields_in_file)}")
+    finally:
+        print(f"SCRIPT WILL CONTINUE WITH THE FOLLOWING FIELDS: {matched_fields}")
+        print("*" * 40)
+
     return lstExtractionFields
 
 
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
+    subject_age = "P0D"  # generic default
     if isinstance(age, str) != True:
         try:
             subject_age = "P" + str(int(age)) + "D" #ISO 8601 Duration format - assumes 'days'
         except:
-            subject_age = "P0D" #generic
+            pass
 
     dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
     if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
@@ -115,13 +206,29 @@ def get_subject(age, subject_description, genotype, sex, species, subject_id, su
     return subject
 
 
+def get_electrode_mapping_data(src_folder_directory, electrode_recordings_file, electrode_device_name, electrode_recordings_type, electrode_recordings_contact_material, electrode_recordings_substrate, electrode_recordings_system, electrode_recordings_location):
+    '''Used for electrode measurements table processing (ephys)'''
+    rhd_file = str(PurePath(src_folder_directory).stem) + '.rhd'
+    base_directory = PurePath(src_folder_directory).parts[:-1] #remove last part of path
+    input_filename = Path(output_path, *base_directory, electrode_recordings_file)
+    print(f'\tREAD ELECTRODE MAPPINGS: {input_filename}')
+    input_map = pd.read_excel(input_filename)
+
+    #PROCESSING FOR ELECTRODE MAPPINGS V1 (LIST OF TUPLES PER ROW); DEFAULT, AND ASSOCIATED .rhd FILE
+    electrode_mappings = input_map.loc[input_map['epFile'] == rhd_file]['mapping']
+
+    #SEE JUPYTER NOTEBOOK (ephys_process.ipynb) IN ROOT FOLDER FOR ALTERNATIVE PROCESSING
+
+    return electrode_mappings
+
+
 def main():
     displayMenu()
     if len(sys.argv) > 1:
         args = collectArguments()
-        displayParam(args)
+        input_path = displayParam(args)
 
-        lstRecords = load_data(args.input_file).to_dict('records')  # creates list of dictionaries
+        lstRecords = load_data(args.input_file, experiment_modality).to_dict('records')  # creates list of dictionaries
 
         for cnt, dataset in enumerate(lstRecords):
             print(f"PROCESSING DATASET #{cnt + 1}")
@@ -162,12 +269,38 @@ def main():
             dest_path = Path(output_path, output_filename)
 
             Path(output_path).mkdir(parents=True, exist_ok=True)
+            base_input_path = os.path.dirname(input_path)
+            last_folder_in_path = os.path.basename(os.path.normpath(base_input_path))
 
-            print(f'\tOUTPUT FILE: {dest_path}')
+            if last_folder_in_path == dataset['src_folder_directory']:
+                #ASSUMED DUPLICATE FOLDERS AT END OF PATH
+                input_filename = Path(base_input_path, filename)
+            else:
+                input_filename = Path(base_input_path, dataset['src_folder_directory'], filename)
 
-            input_filename = Path(os.getcwd(), dataset['src_folder_directory'])
             print(f'\tINPUT FILE: {input_filename}')
+            print(f'\tOUTPUT FILE: {dest_path}')
+            keywords = ['Researchers: ' + str(researcher_experimenter)]
+
             ##################################################################################
+            # PROCESS META-DATA, GENERAL
+            session_description = dataset['session_description']
+            surgery = None  # DEFAULT VALUE FOR SURGERY
+            pharmacology = None  # DEFAULT VALUE FOR PHARMACOLOGY
+            manual_start_time = None # DEFAULT VALUE FOR MANUAL START TIME
+            exp_identifier = dataset['identifier']
+
+            # CONCATENATE STIMULUS NOTES
+            stimulus_notes = 'NA'
+            if dataset['stimulus_notes_include'] == 1:  # 1 (include) or 0 (do not include)
+                stimulus_notes = "Stimulus paradigm: " + str(dataset['stimulus_notes_paradigm']) + "; "
+                if dataset['stimulus_notes_direct_electrical_stimulation'] == 1:
+                    stimulus_notes += "Direct electrical stimulation paradigm: " + str(
+                        dataset['stimulus_notes_direct_electrical_stimulation_paradigm']) + "; "
+
+
+            if dataset['pharmacology_notes_anesthetized_during_recording'] == 1: # 1 (include) or 0 (do not include)
+                pharmacology = dataset['pharmacology']
 
             ##################################################################################
             #CREATE NWB FILE (BASIC META-DATA)
@@ -176,69 +309,129 @@ def main():
                                     session_start_time = datetime(2023, 3, 2, tzinfo=tzlocal()),
                                     experiment_description = experiment_description,
                                     keywords = keywords,
-                                    # surgery=None,  # add: Duane 17-NOV-2022
-                                    # pharmacology=pharmacology,  # add: Duane 17-NOV-2022
-                                    # stimulus_notes=stimulus_notes,  # add: Duane 18-NOV-2022
-                                    experimenter = experimenter,
+                                    surgery=None,
+                                    pharmacology=pharmacology,
+                                    stimulus_notes=stimulus_notes,
+                                    experimenter = researcher_experimenter,
                                     institution = institution,
                                     subject=subject
                                     )
 
             ##################################################################################
-            #ADD CONTAINER TO STORE IMAGE STACK DATA
-            device = nwbfile.create_device(
-                name = dataset['device_name'],
-                description = dataset['device_description'],
-                manufacturer = dataset['device_manufacturer']
-            )
+            # PROCESS META-DATA, ACCORDING TO EXPERIMENT MODALITY
 
-            #check if optical_channel1 is used
-            if str(dataset["optical_channel_name"]) != 'nan':
-                optical_channel = OpticalChannel(
-                    name = dataset['optical_channel_name'],
-                    description = dataset['optical_channel_description'],
-                    emission_lambda = float(dataset['optical_channel_emission_lambda'])
-                )
-                imaging_plane = nwbfile.create_imaging_plane(
-                    name = dataset['image_stack_name'],
-                    description=dataset['image_stack_description'],
-                    device = device,
-                    optical_channel = optical_channel,
-                    imaging_rate = float(dataset['image_stack_imaging_rate']),
-                    excitation_lambda = float(dataset['image_stack_exitation_lambda']),
-                    indicator = dataset['image_stack_indicator'],
-                    location = dataset['image_stack_location'],
-                    grid_spacing = literal_eval(dataset['image_stack_grid_spacing']),
-                    grid_spacing_unit = dataset['image_stack_grid_spacing_unit']
-                )
+            if experiment_modality == "1":
+                ##################################################################################
+                # CREATE/CONVERT ELECTRODES TABLE(S) OBJECT
+                electrode_recordings_file = dataset['electrode_recordings']
+                electrode_mappings = get_electrode_mapping_data(input_filename,
+                                    electrode_recordings_file,
+                                    dataset['electrode_device_name'],
+                                    dataset['electrode_recordings_type'],
+                                    dataset['electrode_recordings_contact_material'],
+                                    dataset['electrode_recordings_substrate'],
+                                    dataset['electrode_recordings_system'],
+                                    dataset['electrode_recordings_location']).tolist()[0]
 
-            ##################################################################################
-            #ADD FILE DATA (IMAGE STACK)
+                #ref: https://stackoverflow.com/questions/51051136/extracting-content-between-curly-braces-in-python
+                grouped_electrode_mappings = re.findall(r'\{(.*?)\}', electrode_mappings)
+                electrode_mappings = [(counter, item) for counter, item in enumerate(grouped_electrode_mappings)]
 
+                print(f'mappings: {type(grouped_electrode_mappings), len(grouped_electrode_mappings), grouped_electrode_mappings}')
 
+                electrode_recordings_description = 'Type: ' + str(
+                    dataset['electrode_recordings_type']) + '; Contact material: ' + str(
+                    dataset['electrode_recordings_contact_material']) + '; Substrate: ' + str(
+                    dataset['electrode_recordings_substrate'])
 
-            data = tifffile.imread(input_filename)
-            rate = float(dataset['image_stack_imaging_rate'])
+                electrode_headers = {'electrode_device_name': dataset['electrode_device_name'],
+                                     'electrode_recordings_description': electrode_recordings_description,
+                                     'electrode_recordings_system': dataset['electrode_recordings_system'],
+                                     'electrode_recordings_location': dataset['electrode_recordings_location'],
+                                     'electrode_filtering': dataset['electrode_filtering']}
 
-            image_series = TwoPhotonSeries(
-                name='TwoPhotonSeries',
-                data = data,
-                imaging_plane=imaging_plane,
-                rate=rate,
-                unit='NA',
-            )
+                ##################################################################################
+                if os.path.isfile(dest_path) != True:  # file conversion completed
+                    print(f'\tCONVERTING INTAN (.rhd) FILE TO NWB: {dest_path}')
+                    convert_to_nwb(intan_filename=str(input_filename),
+                                   nwb_filename=str(dest_path),
+                                   session_description=session_description,
+                                   blocks_per_chunk=1000,
+                                   use_compression=True,
+                                   compression_level=4,
+                                   lowpass_description='Unknown lowpass filtering process',
+                                   highpass_description='Unknown lowpass filtering process',
+                                   merge_files=False,
+                                   subject=subject,
+                                   surgery=surgery,
+                                   stimulus_notes=stimulus_notes,
+                                   pharmacology=pharmacology,
+                                   manual_start_time=manual_start_time,
+                                   exp_identifier=str(exp_identifier),
+                                   electrode_mappings=electrode_mappings,
+                                   experimenter=researcher_experimenter,
+                                   institution=institution,
+                                   electrode_headers=electrode_headers)
+                else:
+                    print(f'\tINTAN (.rhd) FILE CONVERSION COMPLETE')
 
-            nwbfile.add_acquisition(image_series)
+            else:
+                print("not complete")
 
-            ##################################################################################
-            #WRITE NWB FILE TO STORAGE
-            with pynwb.NWBHDF5IO(dest_path, 'w') as io:
-                io.write(nwbfile)
-
-            ##################################################################################
+            # #ADD CONTAINER TO STORE IMAGE STACK DATA
+            # device = nwbfile.create_device(
+            #     name = dataset['device_name'],
+            #     description = dataset['device_description'],
+            #     manufacturer = dataset['device_manufacturer']
+            # )
+        #
+        #     #check if optical_channel1 is used
+        #     if str(dataset["optical_channel_name"]) != 'nan':
+        #         optical_channel = OpticalChannel(
+        #             name = dataset['optical_channel_name'],
+        #             description = dataset['optical_channel_description'],
+        #             emission_lambda = float(dataset['optical_channel_emission_lambda'])
+        #         )
+        #         imaging_plane = nwbfile.create_imaging_plane(
+        #             name = dataset['image_stack_name'],
+        #             description=dataset['image_stack_description'],
+        #             device = device,
+        #             optical_channel = optical_channel,
+        #             imaging_rate = float(dataset['image_stack_imaging_rate']),
+        #             excitation_lambda = float(dataset['image_stack_exitation_lambda']),
+        #             indicator = dataset['image_stack_indicator'],
+        #             location = dataset['image_stack_location'],
+        #             grid_spacing = literal_eval(dataset['image_stack_grid_spacing']),
+        #             grid_spacing_unit = dataset['image_stack_grid_spacing_unit']
+        #         )
+        #
+        #     ##################################################################################
+        #     #ADD FILE DATA (IMAGE STACK)
+        #
+        #
+        #
+        #     data = tifffile.imread(input_filename)
+        #     rate = float(dataset['image_stack_imaging_rate'])
+        #
+        #     image_series = TwoPhotonSeries(
+        #         name='TwoPhotonSeries',
+        #         data = data,
+        #         imaging_plane=imaging_plane,
+        #         rate=rate,
+        #         unit='NA',
+        #     )
+        #
+        #     nwbfile.add_acquisition(image_series)
+        #
+        #     ##################################################################################
+        #     #WRITE NWB FILE TO STORAGE
+        #     with pynwb.NWBHDF5IO(dest_path, 'w') as io:
+        #         io.write(nwbfile)
+        #
+        #     ##################################################################################
 
             #VALIDATE .NWB FILE (FOR COMPLIANCE WITH CURRENT SPEC)
-            print(f'VALIDATING OUTPUT FILE: {dest_path}')
+        #    print(f'VALIDATING OUTPUT FILE: {dest_path}')
             #exec(open(f'nwbinspector {dest_path}').read())
             #nwbinspector .. /../ output / run03_airpuff_hindlimb_40psi_200924_155523.nwb - -config
             #dandi

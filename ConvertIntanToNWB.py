@@ -227,7 +227,7 @@ def convert_to_nwb(settings_filename=None,
     intan_device = create_intan_device(nwbfile, header)
     
     # Create 'electrode_table_region' object
-    print('CREATING ELECTRODE TABLE REGION')
+    print(f'CREATING ELECTRODE TABLE REGION: {electrode_mappings}')
     electrode_table_region = create_electrode_table_region(nwbfile, header, intan_device, electrode_mappings, electrode_headers)
     
     # Initialize variables before conversion begins
