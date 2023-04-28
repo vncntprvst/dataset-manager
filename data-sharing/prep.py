@@ -1,11 +1,12 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 18-APR-2023
+# LAST EDIT: 27-APR-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
 
-import os, sys, math, time, pynwb, re
+import os, sys, math, time, pynwb, re, glob
 from pynwb.ophys import OpticalChannel, TwoPhotonSeries, ImagingPlane
+from pynwb.image import ImageSeries
 import argparse
 import pandas as pd
 import numpy as np
@@ -14,17 +15,23 @@ from dateutil.tz import tzlocal
 from pathlib import Path, PurePath
 from ast import literal_eval
 import tifffile
+import shutil
 
 current = os.path.dirname(os.path.realpath(__file__))
 parent = os.path.dirname(current)
 sys.path.append(parent)
 from ConvertIntanToNWB import convert_to_nwb
 
+from neuroconv import NWBConverter
+from neuroconv.datainterfaces import MovieInterface as VideoInterface
+
 #################################################################
 # APP CONSTANTS (DEFAULT)
 output_path = Path(os.getcwd(), 'output')
 experiment_modality = 1 #ephys
 experiment_description = None #string or null
+researcher_experimenter = ""
+institution = ""
 # debug = True
 #################################################################
 
@@ -69,6 +76,8 @@ def displayParam(args):
             experiment_modality_text = 'Widefield Imaging'
         elif args.experiment_modality == "3":
             experiment_modality_text = '2Photon Imaging'
+        elif args.experiment_modality == "4":
+            experiment_modality_text = 'Behavioral'
         else:
             experiment_modality_text = 'fMRI'
         experiment_modality = args.experiment_modality
@@ -77,18 +86,14 @@ def displayParam(args):
     global researcher_experimenter
     if args.researcher_experimenter:
         researcher_experimenter = args.researcher_experimenter
-    else:
-        researcher_experimenter = ""
-    print(f'RESEARCHER/EXPERIMENTER: {researcher_experimenter}\n')
+        print(f'RESEARCHER/EXPERIMENTER (TERMINAL ARGUMENT): {researcher_experimenter}\n')
 
     global institution
     if args.institution:
         institution = args.institution
-    else:
-        institution = ""
-    print(f'INSTITUTION: {institution}\n')
-    print("*" * 40)
+        print(f'INSTITUTION (TERMINAL ARGUMENT): {institution}\n')
 
+    print("*" * 40)
     return args.input_file
 
 
@@ -108,10 +113,13 @@ def load_data(input_file, experiment_modality):
                     'date_of_birth(YYYY-MM-DD)',
                     'session_description',
                     'src_folder_directory',
+                    'experimenters',
+                    'institution',
+                    'identifier'
                     ]
 
     #FIELD LIST RELATIVE TO EXPERIMENT MODALITY
-    if experiment_modality == "1":
+    if experiment_modality == "1": #ephys
         exp_modality_specific_fields = [
             'stimulus_notes_include',
             'stimulus_notes_paradigm',
@@ -128,7 +136,10 @@ def load_data(input_file, experiment_modality):
             'electrode_recordings_location',
             'electrode_filtering',
             'identifier']
-    elif experiment_modality == "3":
+    elif experiment_modality == "2":#widefield
+        print("WARNING: experiment modality not complete")
+        exp_modality_specific_fields = []
+    elif experiment_modality == "3":#2photon
         exp_modality_specific_fields = [
             'stimulus_notes_include',
             'stimulus_notes_paradigm',
@@ -153,7 +164,22 @@ def load_data(input_file, experiment_modality):
             'image_stack_grid_spacing',
             'image_stack_grid_spacing_unit'
         ]
-    elif experiment_modality == "2" or experiment_modality == "4":
+    elif experiment_modality == "4":#behavior
+        exp_modality_specific_fields = [
+            'session_start_time',
+            'sensor_mode',
+            'ch3_in_36data',
+            'ch4_in_36data',
+            'ch5_in_36data',
+            'ch6_in_36data',
+            'device_name',
+            'device_description',
+            'device_manufacturer',
+            'LCmat_sampling_rate',
+            'LCmat_channel_description',
+            'supplemental_annotation'
+        ]
+    elif experiment_modality == "5":#calcium imaging
         print("WARNING: experiment modality not complete")
         exp_modality_specific_fields = []
 
@@ -199,7 +225,7 @@ def get_subject(age, subject_description, genotype, sex, species, subject_id, su
                              sex=sex,
                              species=species,
                              subject_id=subject_id,
-                             weight=subject_weight,
+                             weight=str(subject_weight),
                              date_of_birth=date_of_birth,
                              strain=subject_strain
                             )
@@ -220,6 +246,57 @@ def get_electrode_mapping_data(src_folder_directory, electrode_recordings_file, 
     #SEE JUPYTER NOTEBOOK (ephys_process.ipynb) IN ROOT FOLDER FOR ALTERNATIVE PROCESSING
 
     return electrode_mappings
+
+
+def get_video_reference_data(src_file_with_path, nwb_folder_directory, symbolic_link=False):
+    '''
+    Used to process external video file data
+
+    :param src_folder_directory: location of external video file (absolute path)
+    :param nwb_folder_directory: location of nwb file (absolute path)
+    :param symbolic_link: determines if symbolic link will be created pointing to org file (default is false but file will be copied to staging directory if set to True)
+    :return: relative reference to video file [relative to nwb location]
+    '''
+
+    output_path_stub = nwb_folder_directory.parts[:-1]
+    ext_files_path = Path(*output_path_stub, 'external_files')
+    Path(ext_files_path).mkdir(parents=True, exist_ok=True)
+
+    src_filename = os.path.basename(os.path.normpath(src_file_with_path))
+    dest_file_with_path = Path(ext_files_path, src_filename)
+
+    if os.path.exists(src_file_with_path):
+        try:
+            print('ATTEMPTING TO CREATE SYMBOLIC LINK')
+            os.symlink(src_file_with_path, dest_file_with_path)
+        except:#Windows may restrict symbolic link creation to UAC elevated permissions
+            # import subprocess
+            # subprocess.check_call('mklink /J "%s" "%s"' % (src_file_with_path, dest_file_with_path), shell=True)
+
+            # import win32file
+            #
+            # win32file.CreateSymbolicLink(str(src_file_with_path), str(dest_file_with_path), 1)
+
+            print('ATTEMPTING TO COPY FILE')
+            #shutil.copy2(src_file_with_path, dest_file_with_path)
+
+        #os.symlink(src_file_with_path, dest_file_with_path)
+        #dest_file_with_path.symlink_to(src_file_with_path)
+        #print(dest_file_with_path.resolve())
+    else:
+        print(f'no exist: {src_filename}')
+
+    print(src_filename, ext_files_path)
+
+    rel_path_to_nwb_file_location = os.path.relpath(src_file_with_path, nwb_folder_directory)
+
+    print(f'src: {src_file_with_path}; dest: {ext_files_path}')
+
+    print(f'\tEXTERNAL FILE LOCATION: {ext_files_path}')
+
+
+
+    return rel_path_to_nwb_file_location
 
 
 def main():
@@ -247,7 +324,12 @@ def main():
             subject_weight = dataset['subject_weight']
             date_of_birth = dataset['date_of_birth(YYYY-MM-DD)']
             subject_strain = dataset['subject_strain']
-
+            global researcher_experimenter
+            if researcher_experimenter == '':#from terminal line (takes priority)
+                researcher_experimenter = dataset['experimenters']
+            global institution
+            if institution == '':#from terminal line (takes priority)
+                institution = dataset['institution']
             ##################################################################################
             # CREATE EXPERIMENTAL SUBJECT OBJECT
             subject = get_subject(age,
@@ -289,27 +371,35 @@ def main():
             pharmacology = None  # DEFAULT VALUE FOR PHARMACOLOGY
             manual_start_time = None # DEFAULT VALUE FOR MANUAL START TIME
             exp_identifier = dataset['identifier']
+            session_start_time = datetime(2023, 3, 2, tzinfo=tzlocal())#use current day
 
-            # CONCATENATE STIMULUS NOTES
+            # CONCATENATE STIMULUS NOTES (DEPENDS ON EXPERIMENT MODALITY)
             stimulus_notes = 'NA'
-            if dataset['stimulus_notes_include'] == 1:  # 1 (include) or 0 (do not include)
-                stimulus_notes = "Stimulus paradigm: " + str(dataset['stimulus_notes_paradigm']) + "; "
-                if dataset['stimulus_notes_direct_electrical_stimulation'] == 1:
-                    stimulus_notes += "Direct electrical stimulation paradigm: " + str(
-                        dataset['stimulus_notes_direct_electrical_stimulation_paradigm']) + "; "
+            pharmacology = 'NA'
+            if experiment_modality != "4":
+                if dataset['stimulus_notes_include'] == 1:  # 1 (include) or 0 (do not include)
+                    stimulus_notes = "Stimulus paradigm: " + str(dataset['stimulus_notes_paradigm']) + "; "
+                    if dataset['stimulus_notes_direct_electrical_stimulation'] == 1:
+                        stimulus_notes += "Direct electrical stimulation paradigm: " + str(
+                            dataset['stimulus_notes_direct_electrical_stimulation_paradigm']) + "; "
 
+                if dataset['pharmacology_notes_anesthetized_during_recording'] == 1: # 1 (include) or 0 (do not include)
+                    pharmacology = dataset['pharmacology']
 
-            if dataset['pharmacology_notes_anesthetized_during_recording'] == 1: # 1 (include) or 0 (do not include)
-                pharmacology = dataset['pharmacology']
+            if dataset['session_start_time']:
+                session_start_time = dataset['session_start_time'].to_pydatetime().replace(tzinfo=tzlocal()) #replace non-existent (presumed) timezone with local timezone
+
+            #TODO - ADD surgery (concatenated) if exists in dataframe
+
 
             ##################################################################################
             #CREATE NWB FILE (BASIC META-DATA)
             nwbfile = pynwb.NWBFile(session_description = dataset['session_description'],
-                                    identifier = '',  # 1-DEC-2022 mod
-                                    session_start_time = datetime(2023, 3, 2, tzinfo=tzlocal()),
+                                    identifier = str(exp_identifier),
+                                    session_start_time = session_start_time,
                                     experiment_description = experiment_description,
                                     keywords = keywords,
-                                    surgery=None,
+                                    surgery=surgery,
                                     pharmacology=pharmacology,
                                     stimulus_notes=stimulus_notes,
                                     experimenter = researcher_experimenter,
@@ -374,6 +464,73 @@ def main():
                                    electrode_headers=electrode_headers)
                 else:
                     print(f'\tINTAN (.rhd) FILE CONVERSION COMPLETE')
+
+            elif experiment_modality == "4":
+                ##################################################################################
+                # ADD CONTAINER TO STORE VIDEO DATA
+                device = nwbfile.create_device(
+                    name=dataset['device_name'],
+                    description=dataset['device_description'],
+                    manufacturer=dataset['device_manufacturer']
+                )
+
+                last_folder_in_path = os.path.basename(os.path.normpath(input_filename))
+                glob_pattern = last_folder_in_path + '_*.avi'
+                path_stub = input_filename.parts[:-1]
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+                for video_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING/REFERENCING VIDEO FILE: {video_file_path}')
+
+                relative_path_video_file = get_video_reference_data(video_file_path, dest_path)
+
+                print(f'relative_path_video_file: {relative_path_video_file}')
+
+                    #src_folder_directory, nwb_folder_directory, symbolic_link=False
+
+                #vid_path = Path('Z:/Songmao/CURBIO_SL_DK/Data/SLR087/')
+                #rel_path_to_nwb_file_location = os.path.relpath(vid_path, dest_path)
+
+                #PATH MUST BE RELATIVE TO DESTINATION DIRECTORY
+                rel_path_to_nwb_file_location = [Path('..\CURBIO_SL_DK\Data\SLR087')]
+                print(rel_path_to_nwb_file_location)
+
+                ##################################################################################
+                #https://pynwb.readthedocs.io/en/stable/tutorials/domain/images.html
+                #Note: This approach references the video files and does not include them in nwb file
+                #WORKS AS OF 26-APR-2023
+                # behavior_external_file = ImageSeries(
+                #     name="ImageSeries",
+                #     external_file=rel_path_to_nwb_file_location,
+                #     description="Image data of an animal moving in environment.",
+                #     unit="n.a.",
+                #     format="external",
+                #     rate=1.0,
+                #     starting_time=0.0,
+                # )
+                # nwbfile.add_acquisition(behavior_external_file)
+                ##################################################################################
+
+                ##################################################################################
+                # WRITE NWB FILE TO STORAGE
+                with pynwb.NWBHDF5IO(dest_path, 'w') as io:
+                    io.write(nwbfile)
+
+                #---model that doesn't seem to work---
+
+                # video_file_path = BEHAVIOR_DATA_PATH / "videos" / "CFR" / "video_avi.avi"
+                # interface = VideoInterface(file_paths=[video_file_path], verbose=False)
+                # #
+                # metadata = interface.get_metadata()
+                # # # For data provenance we add the time zone information to the conversion
+                # # session_start_time = datetime(2020, 1, 1, 12, 30, 0, tzinfo=tz.gettz("US/Pacific"))
+                # metadata["NWBFile"].update(session_start_time=session_start_time)
+                # #
+                # # # Choose a path for saving the nwb file and run the conversion
+                # interface.run_conversion(nwbfile_path=dest_path, metadata=metadata)
+
+                break
+                # with pynwb.NWBHDF5IO(dest_path, 'w') as io:
+                #     io.write(nwbfile)
 
             else:
                 print("not complete")
