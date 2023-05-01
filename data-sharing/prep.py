@@ -1,29 +1,26 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 27-APR-2023
+# LAST EDIT: 1-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
 
-import os, sys, math, time, pynwb, re, glob
-from pynwb.ophys import OpticalChannel, TwoPhotonSeries, ImagingPlane
-from pynwb.image import ImageSeries
+import os, sys, pynwb, re, glob
+from pathlib import Path, PurePath
 import argparse
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.tz import tzlocal
-from pathlib import Path, PurePath
-from ast import literal_eval
-import tifffile
-import shutil
 
-current = os.path.dirname(os.path.realpath(__file__))
-parent = os.path.dirname(current)
+
+parent = Path(__file__).parents[1] #2 levels up
 sys.path.append(parent)
-from ConvertIntanToNWB import convert_to_nwb
+print(f'USING PARENT PATH REFERENCES FOR IMPORTS: {parent}')
 
-from neuroconv import NWBConverter
-from neuroconv.datainterfaces import MovieInterface as VideoInterface
+sys.path.insert(1, 'lib')
+sys.path.insert(1, 'converters')
+
+import utils
+from ConvertIntanToNWB import convert_to_nwb
 
 #################################################################
 # APP CONSTANTS (DEFAULT)
@@ -268,21 +265,19 @@ def get_video_reference_data(src_file_with_path, nwb_folder_directory, symbolic_
     if os.path.exists(src_file_with_path):
         try:
             print('ATTEMPTING TO CREATE SYMBOLIC LINK')
-            os.symlink(src_file_with_path, dest_file_with_path)
-        except:#Windows may restrict symbolic link creation to UAC elevated permissions
-            # import subprocess
-            # subprocess.check_call('mklink /J "%s" "%s"' % (src_file_with_path, dest_file_with_path), shell=True)
+            #NOTE SYMBOLIC LINK CREATION PERMISSIONS MAY BE RESTRICTED ON WINDOWS PLATFORM
+            #WINDOWS 11 MUST BE IN 'DEVELOPER MODE' TO ENABLE SYMBOLIC LINK CREATION
+            #ref: https://learn.microsoft.com/en-us/windows/apps/get-started/developer-mode-features-and-debugging#additional-developer-mode-features
+            winplatform = utils.IsWin11()
+            if winplatform is True:
 
-            # import win32file
-            #
-            # win32file.CreateSymbolicLink(str(src_file_with_path), str(dest_file_with_path), 1)
-
+                cmd = f'New-Item -ItemType SymbolicLink -Path "{dest_file_with_path}" -Target "{src_file_with_path}"'
+                print(cmd)
+            else:
+                os.symlink(src_file_with_path, dest_file_with_path)
+        except:
             print('ATTEMPTING TO COPY FILE')
             #shutil.copy2(src_file_with_path, dest_file_with_path)
-
-        #os.symlink(src_file_with_path, dest_file_with_path)
-        #dest_file_with_path.symlink_to(src_file_with_path)
-        #print(dest_file_with_path.resolve())
     else:
         print(f'no exist: {src_filename}')
 

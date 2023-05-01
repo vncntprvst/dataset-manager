@@ -3,19 +3,25 @@
 ***Scripts*** are useful in converting data from prorpritary formats into NWB format.  Scripts are expected to be used as back-end to U19 data sharing portals: ***usarhythms.ucsd.edu, highandlow.dk.ucsd.edu***
 
 Currently supported experimental data is:
-1. Widefield Imaging (meta-data only)
-2. Extracellular electrophysiology (Intan -> NWB data conversion)
+1. Extracellular electrophysiology (Intan -> NWB data conversion)
     + See [README-ephys.md](README-ephys.md) for detailed information
+2. Widefield Imaging (meta-data only)
 3. 2 Photon Imaging (terminal)
    + See [README-2photon.md](README-2photon.md) for detailed information
-4. Calcium imaging (WIP)
+4. Behavioral (terminal) 
+5. Calcium imaging (WIP)
 
-## Steps for running (manual - terminal):
+## Steps for running (manual - terminal) -> send to data portal:
 
     1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
     2. Download and complete Excel sheet that most closely correponds to experiment
     3. Run with 'python share.py' and add terminal arguments as needed
 
+## Steps for running (manual - terminal) -> just conversion:
+
+    1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
+    2. Download and complete Excel sheet that most closely correponds to experiment
+    3. Run with 'python prep.py' and add terminal arguments as needed
 
 ## Steps for running (manual - Jupyter Notebook):
 
@@ -31,9 +37,9 @@ Note: You will need input.xlsx for electrophysiology experiments (sample coming)
 ---
 
 - Conversion for Intan format to NWB format
+- Ability to add tif image stacks to NWB files
 - Integration with back-end relational database (in progress), NoSQL database (in progress)
 - Ability to aggregate NWB containers (for uploading to NIH-approved respositories)
-- Ability to add tif image stacks to NWB files
 
 ## Installation
 
