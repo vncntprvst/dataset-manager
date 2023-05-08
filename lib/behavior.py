@@ -1,5 +1,5 @@
 # CREATED: 4-MAY-2024
-# LAST EDIT: 5-MAY-2023
+# LAST EDIT: 8-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''METHODS/FUNCTIONS FOR PROCESSING BEHAVIOR EXPERIMENTAL MODALITY'''
@@ -85,17 +85,28 @@ def add_timeseries_data(file, video_sampling_rate_Hz, name, description):
     '''
 
     file_extension = Path(file).suffix
+
+    unit = 'NA'
+
     if file_extension == '.xlsx':
         nd_array_timeseries_data = pd.read_excel(file).to_numpy()
     else:
         nd_array_timeseries_data = loadmat(file)['data']  # get just the ndarray part
+
+        if nd_array_timeseries_data.shape[0] == 1:
+            nd_array_timeseries_data = nd_array_timeseries_data.T
+
+        if name == 'raw_labchart_data':
+            for datastart, dataend in zip(loadmat(file)['datastart'], loadmat(file)['dataend']):
+                unit += "({},{}) ".format(str(int(datastart)), str(int(dataend)))
+
 
     speed_time_series = TimeSeries(
         name=name,
         data=nd_array_timeseries_data,
         rate = video_sampling_rate_Hz, #float
         description=description,
-        unit=""
+        unit=unit
     )
     behavioral_time_series = BehavioralTimeSeries(
         time_series=speed_time_series,
@@ -104,19 +115,31 @@ def add_timeseries_data(file, video_sampling_rate_Hz, name, description):
     return behavioral_time_series
 
 
-def add_tuple_data(file, name):
-    tuple_data = ''
+def add_matrix_data(file, name, description):
+    '''NOT REALLY TIMESERIES, JUST A HACK TO ADD MATRIX DATA TO NWB CONTAINER'''
 
     file_extension = Path(file).suffix
+
     if file_extension == '.csv': #processing
         csv_data = pd.read_csv(file)
-        tuple_data = (tuple(csv_data.columns.tolist()), tuple(csv_data.iloc[0, :].values.tolist()))
-
+        data = np.array((csv_data.columns.tolist(), csv_data.iloc[0, :].values.tolist())).T
     else: #analysis (.mat)
         bools = loadmat(file)['bBoolsMat']
-        tuple_data = (tuple(bools[:, 0]), tuple(bools[:, 1]), tuple(bools[:, 2]))
+        data = bools
 
-    return tuple_data
+    unit = 'NA'
+    container = TimeSeries(
+        name=name,
+        data=data,
+        rate=0.0,  # float
+        description=description,
+        unit=unit
+    )
+    data = BehavioralTimeSeries(
+        time_series=container,
+        name=name
+    )
+    return data
 
 
 def add_str_data(file, name):

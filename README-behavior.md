@@ -17,7 +17,7 @@
       * optional argument: institution (-institution) - string in quotes
       
       example terminal command: 
-      python .\prep.py -i E:\temp\ephys-youngbin\input\input_ephys.xlsx -o E:\temp\output -exp 2 -researcher 'Yao, Pantong' -institution 'UC San Diego'
+      python data-sharing/prep.py -i /net/birdstore/Songmao/CURBIO_SL_DK/input_behavior_linux2_full.xlsx -o /net/birdstore/Songmao/output -exp 4
 
       Excel file has experimenters, institution headers however command line arguments will take priority
       If output folder is not defined, script will create folder in current working directory
@@ -36,3 +36,17 @@
     - code to validate NWB files after generation
 - templates/input_behavior.xlsx (Contains meta-data about experiment and other file locations)
   * Note: This file is parsed by prep.py
+
+## Errata Notes
+
+- Current template file for behavior (as of 8-MAY-2023) used for processing the following types of files:
+.avi (external)
+.csv (external)(timeseries - location "torso")
+.mat (geometry [ellipse] - comment to image series)
+.xlsx(timeseries - sensor data: ndarray)
+.mat (timeseries - data [36data]: ndarray)
+.mat (other meta-data [LCmat]: ndarray)
+.csv (processing ref) - matrix
+.mat (analysis ref) - matrix
+.csv (stimulus_notes_file) - string
+.csv (notes) - string
