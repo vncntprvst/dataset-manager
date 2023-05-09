@@ -1,5 +1,5 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 1-MAY-2023
+# LAST EDIT: 9-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
@@ -10,7 +10,10 @@ import argparse
 import pandas as pd
 from datetime import datetime
 from dateutil.tz import tzlocal
+from scipy.io import loadmat
 
+from pynwb import NWBHDF5IO, NWBFile
+from pynwb.image import ImageSeries
 
 parent = Path(__file__).parents[1] #2 levels up
 sys.path.append(parent)
@@ -20,6 +23,7 @@ sys.path.insert(1, 'lib')
 sys.path.insert(1, 'converters')
 
 import utils
+import behavior
 from ConvertIntanToNWB import convert_to_nwb
 
 #################################################################
@@ -164,7 +168,7 @@ def load_data(input_file, experiment_modality):
     elif experiment_modality == "4":#behavior
         exp_modality_specific_fields = [
             'session_start_time',
-            'sensor_mode',
+            'sensor_description',
             'ch3_in_36data',
             'ch4_in_36data',
             'ch5_in_36data',
@@ -174,7 +178,12 @@ def load_data(input_file, experiment_modality):
             'device_manufacturer',
             'LCmat_sampling_rate',
             'LCmat_channel_description',
-            'supplemental_annotation'
+            'supplemental_annotation',
+            'video_sampling_rate',
+            'processing_file',
+            'analysis_file',
+            'notes_file',
+            'stimulus_notes_file'
         ]
     elif experiment_modality == "5":#calcium imaging
         print("WARNING: experiment modality not complete")
@@ -183,7 +192,7 @@ def load_data(input_file, experiment_modality):
 
     #APPEND EXPERIMENT MODALITY SPECFIC FIELDS TO COMMON LIST
     lstNWBFields = commonFields + exp_modality_specific_fields
-
+    matched_fields = []
     try:
         lstExtractionFields = pd.read_excel(input_file, sheet_name="auto", usecols=lstNWBFields) #just extract columns/fields I need
         matched_fields = lstNWBFields
@@ -203,13 +212,14 @@ def load_data(input_file, experiment_modality):
 
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
-    subject_age = "P0D"  # generic default
-    if isinstance(age, str) != True:
-        try:
-            subject_age = "P" + str(int(age)) + "D" #ISO 8601 Duration format - assumes 'days'
-        except:
-            pass
-
+    if re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
+        subject_age = age
+    else:
+        if isinstance(age, str) != True: #POSSIBLE int, FORMAT FOR ISO 8601
+            subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
+        else:
+            subject_age = "P0D"  # generic default
+            
     dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
     if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
         date_of_birth = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
@@ -245,55 +255,6 @@ def get_electrode_mapping_data(src_folder_directory, electrode_recordings_file, 
     return electrode_mappings
 
 
-def get_video_reference_data(src_file_with_path, nwb_folder_directory, symbolic_link=False):
-    '''
-    Used to process external video file data
-
-    :param src_folder_directory: location of external video file (absolute path)
-    :param nwb_folder_directory: location of nwb file (absolute path)
-    :param symbolic_link: determines if symbolic link will be created pointing to org file (default is false but file will be copied to staging directory if set to True)
-    :return: relative reference to video file [relative to nwb location]
-    '''
-
-    output_path_stub = nwb_folder_directory.parts[:-1]
-    ext_files_path = Path(*output_path_stub, 'external_files')
-    Path(ext_files_path).mkdir(parents=True, exist_ok=True)
-
-    src_filename = os.path.basename(os.path.normpath(src_file_with_path))
-    dest_file_with_path = Path(ext_files_path, src_filename)
-
-    if os.path.exists(src_file_with_path):
-        try:
-            print('ATTEMPTING TO CREATE SYMBOLIC LINK')
-            #NOTE SYMBOLIC LINK CREATION PERMISSIONS MAY BE RESTRICTED ON WINDOWS PLATFORM
-            #WINDOWS 11 MUST BE IN 'DEVELOPER MODE' TO ENABLE SYMBOLIC LINK CREATION
-            #ref: https://learn.microsoft.com/en-us/windows/apps/get-started/developer-mode-features-and-debugging#additional-developer-mode-features
-            winplatform = utils.IsWin11()
-            if winplatform is True:
-
-                cmd = f'New-Item -ItemType SymbolicLink -Path "{dest_file_with_path}" -Target "{src_file_with_path}"'
-                print(cmd)
-            else:
-                os.symlink(src_file_with_path, dest_file_with_path)
-        except:
-            print('ATTEMPTING TO COPY FILE')
-            #shutil.copy2(src_file_with_path, dest_file_with_path)
-    else:
-        print(f'no exist: {src_filename}')
-
-    print(src_filename, ext_files_path)
-
-    rel_path_to_nwb_file_location = os.path.relpath(src_file_with_path, nwb_folder_directory)
-
-    print(f'src: {src_file_with_path}; dest: {ext_files_path}')
-
-    print(f'\tEXTERNAL FILE LOCATION: {ext_files_path}')
-
-
-
-    return rel_path_to_nwb_file_location
-
-
 def main():
     displayMenu()
     if len(sys.argv) > 1:
@@ -308,9 +269,9 @@ def main():
             age = dataset['age']
             subject_description = dataset['subject_description']
             genotype = dataset['genotype']
-            if dataset['sex'] == 'Male':
+            if dataset['sex'] == 'Male' or dataset['sex'] == 'M':
                 sex = 'M'
-            elif dataset['sex'] == 'Female':
+            elif dataset['sex'] == 'Female' or dataset['sex'] == 'F' :
                 sex = 'F'
             else:
                 sex = 'U'  # unknown
@@ -371,7 +332,20 @@ def main():
             # CONCATENATE STIMULUS NOTES (DEPENDS ON EXPERIMENT MODALITY)
             stimulus_notes = 'NA'
             pharmacology = 'NA'
-            if experiment_modality != "4":
+            notes = 'NA'
+            if experiment_modality == "4":
+                stimulus_notes_file = dataset['stimulus_notes_file']
+                path_stub = input_filename.parts[:-1]
+                data_filename = Path(*path_stub, stimulus_notes_file)
+                stimulus_notes = behavior.add_str_data(data_filename, 'stimulus_notes')
+                print(f'\tINCLUDING DATA FROM FILE: {stimulus_notes_file}')
+
+                notes_file = dataset['notes_file']
+                path_stub = input_filename.parts[:-1]
+                data_filename = Path(*path_stub, notes_file)
+                notes = behavior.add_str_data(data_filename, 'notes')
+                print(f'\tINCLUDING DATA FROM FILE: {notes_file}')
+            else:
                 if dataset['stimulus_notes_include'] == 1:  # 1 (include) or 0 (do not include)
                     stimulus_notes = "Stimulus paradigm: " + str(dataset['stimulus_notes_paradigm']) + "; "
                     if dataset['stimulus_notes_direct_electrical_stimulation'] == 1:
@@ -386,7 +360,6 @@ def main():
 
             #TODO - ADD surgery (concatenated) if exists in dataframe
 
-
             ##################################################################################
             #CREATE NWB FILE (BASIC META-DATA)
             nwbfile = pynwb.NWBFile(session_description = dataset['session_description'],
@@ -399,7 +372,8 @@ def main():
                                     stimulus_notes=stimulus_notes,
                                     experimenter = researcher_experimenter,
                                     institution = institution,
-                                    subject=subject
+                                    subject=subject,
+                                    notes=notes
                                     )
 
             ##################################################################################
@@ -462,80 +436,161 @@ def main():
 
             elif experiment_modality == "4":
                 ##################################################################################
-                # ADD CONTAINER TO STORE VIDEO DATA
+                # CREATE IMAGE SERIES OBJECT TO STORE VIDEO DATA
+                video_sampling_rate = dataset['video_sampling_rate']
+                last_folder_in_path = os.path.basename(os.path.normpath(input_filename))
+                path_stub = input_filename.parts[:-1]
+                glob_pattern = last_folder_in_path + '_*.avi'
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+
+                video_file_path = '' #.avi
+                for video_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING/REFERENCING VIDEO FILE: {video_file_path}')
+                relative_path_video_file = behavior.get_video_reference_data(video_file_path, dest_path)
+
+                video_location_file_path = '' #.csv
+                glob_pattern = session_id + '_*_*_torso.csv'
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+                for video_location_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING/REFERENCING VIDEO LOCATION FILE: {video_location_file_path}')
+                if video_location_file_path == '':
+                    relative_path_video_location_file = video_location_file_path
+                else:
+                    relative_path_video_location_file = behavior.get_video_reference_data(video_location_file_path, dest_path)
+
+                glob_pattern = session_id + '_*_ellipse_*.mat'
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+                for comments_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING COMMENTS [RE: VIDEO FILE] FROM FILE: {comments_file_path}')
+                img_comments = behavior.extract_img_series_data(comments_file_path)
+
                 device = nwbfile.create_device(
                     name=dataset['device_name'],
                     description=dataset['device_description'],
                     manufacturer=dataset['device_manufacturer']
                 )
 
-                last_folder_in_path = os.path.basename(os.path.normpath(input_filename))
-                glob_pattern = last_folder_in_path + '_*.avi'
-                path_stub = input_filename.parts[:-1]
+                ##################################################################################
+                # https://pynwb.readthedocs.io/en/stable/tutorials/domain/images.html
+                # Note: This approach references the video files and does not include them in nwb file
+                behavior_external_file = ImageSeries(
+                    name="ImageSeries",
+                    external_file=[relative_path_video_file, relative_path_video_location_file],
+                    description=session_description,
+                    format="external",
+                    rate=float(video_sampling_rate),
+                    comments=img_comments
+                )
+                nwbfile.add_acquisition(behavior_external_file)
+                ################################################################################
+
+                ##################################################################################
+                # ADD SENSOR DATA AS NDARRAY (TIME SERIES)
+                time_series_name = 'raw_sensor_data'
+                sensor_description = dataset['sensor_description']
+
+                video_sampling_rate_Hz = 100.0 #float
+
+                glob_pattern = session_id + '_*_excel.xlsx' # .xlsx
                 base_path_with_pattern = str(Path(*path_stub, glob_pattern))
-                for video_file_path in glob.glob(base_path_with_pattern, recursive=False):
-                    print(f'\tINCLUDING/REFERENCING VIDEO FILE: {video_file_path}')
+                for sensor_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING {time_series_name} DATA FROM FILE: {sensor_file_path}')
 
-                relative_path_video_file = get_video_reference_data(video_file_path, dest_path)
+                # CREATE NWB BEHAVIOR MODEL [TO WHICH WE WILL ADD TIME SERIES, GEOMETRY, ETC.]
+                behavioral_time_series = behavior.add_timeseries_data(sensor_file_path, video_sampling_rate_Hz, time_series_name, sensor_description)
 
-                print(f'relative_path_video_file: {relative_path_video_file}')
-
-                    #src_folder_directory, nwb_folder_directory, symbolic_link=False
-
-                #vid_path = Path('Z:/Songmao/CURBIO_SL_DK/Data/SLR087/')
-                #rel_path_to_nwb_file_location = os.path.relpath(vid_path, dest_path)
-
-                #PATH MUST BE RELATIVE TO DESTINATION DIRECTORY
-                rel_path_to_nwb_file_location = [Path('..\CURBIO_SL_DK\Data\SLR087')]
-                print(rel_path_to_nwb_file_location)
-
-                ##################################################################################
-                #https://pynwb.readthedocs.io/en/stable/tutorials/domain/images.html
-                #Note: This approach references the video files and does not include them in nwb file
-                #WORKS AS OF 26-APR-2023
-                # behavior_external_file = ImageSeries(
-                #     name="ImageSeries",
-                #     external_file=rel_path_to_nwb_file_location,
-                #     description="Image data of an animal moving in environment.",
-                #     unit="n.a.",
-                #     format="external",
-                #     rate=1.0,
-                #     starting_time=0.0,
-                # )
-                # nwbfile.add_acquisition(behavior_external_file)
+                behavior_module = nwbfile.create_processing_module(
+                    name=time_series_name, description=sensor_description
+                )
+                behavior_module.add(behavioral_time_series)
                 ##################################################################################
 
                 ##################################################################################
+                # ADD DATA [36DATA] AS NDARRAY (TIME SERIES)
+                ##################################################################################
+                time_series_name = 'data_36columns'
+                time_series_description = str(dataset['ch3_in_36data']) + '|' + str(dataset['ch4_in_36data']) + '|' + str(dataset['ch5_in_36data']) + '|' + str(dataset['ch6_in_36data'])
+                video_sampling_rate_Hz = 2000.0  # sampling rate in Hz
+
+                glob_pattern = session_id + '_*_36data.mat' # .mat
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+                for time_series_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING {time_series_name} DATA FROM FILE: {time_series_file_path}')
+
+                behavioral_time_series = behavior.add_timeseries_data(time_series_file_path, video_sampling_rate_Hz,
+                                                                       time_series_name, time_series_description)
+
+                behavior_module = nwbfile.create_processing_module(
+                    name=time_series_name, description=time_series_description
+                )
+                behavior_module.add(behavioral_time_series)
+                ##################################################################################
+
+                ##################################################################################
+                # ADD OTHER META-DATA [LCmat] AS NDARRAY (TIME SERIES)
+                ##################################################################################
+                time_series_name = 'raw_labchart_data'
+                time_series_description = dataset['LCmat_channel_description']
+                video_sampling_rate_Hz = float(dataset['LCmat_sampling_rate']) # sampling rate in Hz
+
+                glob_pattern = session_id + '_*_LCmat.mat'  # .mat
+                base_path_with_pattern = str(Path(*path_stub, glob_pattern))
+                for other_file_path in glob.glob(base_path_with_pattern, recursive=False):
+                    print(f'\tINCLUDING {time_series_name} LOG DATA FROM FILE: {other_file_path}')
+
+                behavioral_time_series = behavior.add_timeseries_data(other_file_path, video_sampling_rate_Hz,
+                                                                      time_series_name, time_series_description)
+
+                behavior_module = nwbfile.create_processing_module(
+                    name=time_series_name, description=time_series_description
+                )
+                behavior_module.add(behavioral_time_series)
+
+                ##################################################################################
+                # ADD PROCESSING DATA REF AS TUPLE
+                ##################################################################################
+                processing_file = dataset['processing_file']
+                name = 'signal_percentiles'
+                description = 'Percentiles of the 36-data signals.'
+
+                if processing_file:
+                    data_filename = Path(*path_stub, processing_file)
+                    processing_data = behavior.add_matrix_data(data_filename, 'processing', description)
+
+                    behavior_module = nwbfile.create_processing_module(
+                        name=name, description=description
+                    )
+
+                    behavior_module.add(processing_data)
+
+                    print(f'\tINCLUDING {processing_file} DATA FROM FILE: {data_filename}')
+
+                ##################################################################################
+                # ADD ANALYSIS DATA REF AS TUPLE
+                ##################################################################################
+                analysis_file = dataset['analysis_file']
+                name = 'behavioral_booleans'
+                description = 'Annotated masks for pre-defined behaviors (usable, head-torso, both)'
+
+                if analysis_file:
+                    data_filename = Path(*path_stub, analysis_file)
+                    analysis_data = behavior.add_matrix_data(data_filename, 'analysis', description)
+
+                    behavior_module = nwbfile.create_processing_module(
+                        name=name, description=description
+                    )
+                    behavior_module.add(analysis_data)
+
+                    print(f'\tINCLUDING {analysis_file} DATA FROM FILE: {data_filename}')
+
                 # WRITE NWB FILE TO STORAGE
                 with pynwb.NWBHDF5IO(dest_path, 'w') as io:
                     io.write(nwbfile)
 
-                #---model that doesn't seem to work---
-
-                # video_file_path = BEHAVIOR_DATA_PATH / "videos" / "CFR" / "video_avi.avi"
-                # interface = VideoInterface(file_paths=[video_file_path], verbose=False)
-                # #
-                # metadata = interface.get_metadata()
-                # # # For data provenance we add the time zone information to the conversion
-                # # session_start_time = datetime(2020, 1, 1, 12, 30, 0, tzinfo=tz.gettz("US/Pacific"))
-                # metadata["NWBFile"].update(session_start_time=session_start_time)
-                # #
-                # # # Choose a path for saving the nwb file and run the conversion
-                # interface.run_conversion(nwbfile_path=dest_path, metadata=metadata)
-
-                break
-                # with pynwb.NWBHDF5IO(dest_path, 'w') as io:
-                #     io.write(nwbfile)
-
             else:
                 print("not complete")
 
-            # #ADD CONTAINER TO STORE IMAGE STACK DATA
-            # device = nwbfile.create_device(
-            #     name = dataset['device_name'],
-            #     description = dataset['device_description'],
-            #     manufacturer = dataset['device_manufacturer']
-            # )
+
         #
         #     #check if optical_channel1 is used
         #     if str(dataset["optical_channel_name"]) != 'nan':
