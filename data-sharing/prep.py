@@ -1,5 +1,5 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 8-MAY-2023
+# LAST EDIT: 9-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
@@ -212,16 +212,14 @@ def load_data(input_file, experiment_modality):
 
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
-    # subject_age = "P0D"  # generic default
-    # if isinstance(age, str) != True:
-    #     try:
-    #         subject_age = "P" + str(int(age)) + "D" #ISO 8601 Duration format - assumes 'days'
-    #     except:
-    #         pass
-
-    #TODO FIX
-    subject_age = age
-
+    if re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
+        subject_age = age
+    else:
+        if isinstance(age, str) != True: #POSSIBLE int, FORMAT FOR ISO 8601
+            subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
+        else:
+            subject_age = "P0D"  # generic default
+            
     dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
     if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
         date_of_birth = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
