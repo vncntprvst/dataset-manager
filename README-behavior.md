@@ -39,14 +39,14 @@
 
 ## Errata Notes
 
-- Current template file for behavior (as of 8-MAY-2023) used for processing the following types of files:
-.avi (external)
-.csv (external)(timeseries - location "torso")
-.mat (geometry [ellipse] - comment to image series)
-.xlsx(timeseries - sensor data: ndarray)
-.mat (timeseries - data [36data]: ndarray)
-.mat (other meta-data [LCmat]: ndarray)
-.csv (processing ref) - matrix
-.mat (analysis ref) - matrix
-.csv (stimulus_notes_file) - string
-.csv (notes) - string
+- Current template file for behavior (as of 8-MAY-2023) used for processing the following types of files:  
+.avi (external)  
+.csv (external)(timeseries - location "torso")  
+.mat (geometry [ellipse] - comment to image series)  
+.xlsx(timeseries - sensor data: ndarray)  
+.mat (timeseries - data [36data]: ndarray)  
+.mat (other meta-data [LCmat]: ndarray)  
+.csv (processing ref) - matrix  
+.mat (analysis ref) - matrix  
+.csv (stimulus_notes_file) - string  
+.csv (notes) - string  
