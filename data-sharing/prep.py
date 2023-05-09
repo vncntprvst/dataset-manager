@@ -1,5 +1,5 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 4-MAY-2023
+# LAST EDIT: 8-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
@@ -212,12 +212,15 @@ def load_data(input_file, experiment_modality):
 
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
-    subject_age = "P0D"  # generic default
-    if isinstance(age, str) != True:
-        try:
-            subject_age = "P" + str(int(age)) + "D" #ISO 8601 Duration format - assumes 'days'
-        except:
-            pass
+    # subject_age = "P0D"  # generic default
+    # if isinstance(age, str) != True:
+    #     try:
+    #         subject_age = "P" + str(int(age)) + "D" #ISO 8601 Duration format - assumes 'days'
+    #     except:
+    #         pass
+
+    #TODO FIX
+    subject_age = age
 
     dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
     if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
@@ -268,9 +271,9 @@ def main():
             age = dataset['age']
             subject_description = dataset['subject_description']
             genotype = dataset['genotype']
-            if dataset['sex'] == 'Male':
+            if dataset['sex'] == 'Male' or dataset['sex'] == 'M':
                 sex = 'M'
-            elif dataset['sex'] == 'Female':
+            elif dataset['sex'] == 'Female' or dataset['sex'] == 'F' :
                 sex = 'F'
             else:
                 sex = 'U'  # unknown
@@ -358,7 +361,6 @@ def main():
                 session_start_time = dataset['session_start_time'].to_pydatetime().replace(tzinfo=tzlocal()) #replace non-existent (presumed) timezone with local timezone
 
             #TODO - ADD surgery (concatenated) if exists in dataframe
-
 
             ##################################################################################
             #CREATE NWB FILE (BASIC META-DATA)
@@ -453,7 +455,10 @@ def main():
                 base_path_with_pattern = str(Path(*path_stub, glob_pattern))
                 for video_location_file_path in glob.glob(base_path_with_pattern, recursive=False):
                     print(f'\tINCLUDING/REFERENCING VIDEO LOCATION FILE: {video_location_file_path}')
-                relative_path_video_location_file = behavior.get_video_reference_data(video_location_file_path, dest_path)
+                if video_location_file_path == '':
+                    relative_path_video_location_file = video_location_file_path
+                else:
+                    relative_path_video_location_file = behavior.get_video_reference_data(video_location_file_path, dest_path)
 
                 glob_pattern = session_id + '_*_ellipse_*.mat'
                 base_path_with_pattern = str(Path(*path_stub, glob_pattern))
@@ -535,7 +540,7 @@ def main():
                 for other_file_path in glob.glob(base_path_with_pattern, recursive=False):
                     print(f'\tINCLUDING {time_series_name} LOG DATA FROM FILE: {other_file_path}')
 
-                behavioral_time_series = behavior.add_timeseries_data(time_series_file_path, video_sampling_rate_Hz,
+                behavioral_time_series = behavior.add_timeseries_data(other_file_path, video_sampling_rate_Hz,
                                                                       time_series_name, time_series_description)
 
                 behavior_module = nwbfile.create_processing_module(
@@ -547,32 +552,37 @@ def main():
                 # ADD PROCESSING DATA REF AS TUPLE
                 ##################################################################################
                 processing_file = dataset['processing_file']
+                name = 'signal_percentiles'
+                description = 'Percentiles of the 36-data signals.'
 
                 if processing_file:
                     data_filename = Path(*path_stub, processing_file)
-                    processing_data = behavior.add_tuple_data(data_filename, 'processing')
+                    processing_data = behavior.add_matrix_data(data_filename, 'processing', description)
 
-                    processing_data = []
-                    processing_data_module = nwbfile.create_processing_module(
-                        name='signal_percentiles', description="Percentiles of the 36-data signals."
+                    behavior_module = nwbfile.create_processing_module(
+                        name=name, description=description
                     )
-                    processing_data_module.add(processing_data)
+
+                    behavior_module.add(processing_data)
+
                     print(f'\tINCLUDING {processing_file} DATA FROM FILE: {data_filename}')
 
                 ##################################################################################
                 # ADD ANALYSIS DATA REF AS TUPLE
                 ##################################################################################
                 analysis_file = dataset['analysis_file']
+                name = 'behavioral_booleans'
+                description = 'Annotated masks for pre-defined behaviors (usable, head-torso, both)'
 
                 if analysis_file:
                     data_filename = Path(*path_stub, analysis_file)
-                    analysis_data = behavior.add_tuple_data(data_filename, 'analysis')
+                    analysis_data = behavior.add_matrix_data(data_filename, 'analysis', description)
 
-                    analysis_data = []
-                    processing_data_module = nwbfile.create_processing_module(
-                        name='behavioral_booleans', description="Annotated masks for pre-defined behaviors (usable, head-torso, both)"
+                    behavior_module = nwbfile.create_processing_module(
+                        name=name, description=description
                     )
-                    processing_data_module.add(analysis_data)
+                    behavior_module.add(analysis_data)
+
                     print(f'\tINCLUDING {analysis_file} DATA FROM FILE: {data_filename}')
 
                 # WRITE NWB FILE TO STORAGE
