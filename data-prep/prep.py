@@ -1,10 +1,10 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 9-MAY-2023
+# LAST EDIT: 19-MAY-2023
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
 
-import os, sys, pynwb, re, glob
+import os, sys, math, pynwb, re, glob
 from pathlib import Path, PurePath
 import argparse
 import pandas as pd
@@ -185,9 +185,9 @@ def load_data(input_file, experiment_modality):
             'notes_file',
             'stimulus_notes_file'
         ]
-    elif experiment_modality == "5":#calcium imaging
-        print("WARNING: experiment modality not complete")
+    elif experiment_modality == "5":#mri
         exp_modality_specific_fields = []
+        
 
 
     #APPEND EXPERIMENT MODALITY SPECFIC FIELDS TO COMMON LIST
@@ -212,13 +212,18 @@ def load_data(input_file, experiment_modality):
 
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
-    if re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
-        subject_age = age
-    else:
-        if isinstance(age, str) != True: #POSSIBLE int, FORMAT FOR ISO 8601
-            subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
+
+    try:
+        if math.isnan(age):
+            subject_age = ''
+    except:
+        if re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
+            subject_age = age
         else:
-            subject_age = "P0D"  # generic default
+            if isinstance(age, str) != True:  # POSSIBLE int, FORMAT FOR ISO 8601
+                subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
+            else:
+                subject_age = "P0D"  # generic default
             
     dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
     if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
