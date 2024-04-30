@@ -5,7 +5,8 @@
 Currently supported experimental data is:
 1. Extracellular electrophysiology (Intan -> NWB data conversion)
     + See [README-ephys.md](README-ephys.md) for detailed information
-2. Widefield Imaging (meta-data only)
+2. Widefield Imaging
+    + See [README-widefield.md](README-widefield.md) for detailed information
 3. 2 Photon Imaging (terminal)
    + See [README-2photon.md](README-2photon.md) for detailed information
 4. Behavioral (terminal) 
@@ -41,7 +42,7 @@ Note: You will need input.xlsx for electrophysiology experiments (sample coming)
 - Integration with back-end relational database (in progress), NoSQL database (in progress)
 - Ability to aggregate NWB containers (for uploading to NIH-approved respositories)
 
-## Installation
+## Installation (python)
 
 ---
 
