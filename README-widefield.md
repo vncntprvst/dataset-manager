@@ -2,17 +2,15 @@
 
 ## Steps for running (manual):
 
-    1. Experimenter should download [templates/input_2photon.xlsx](templates/input_2photon.xlsx), complete spreadsheet with relevant information 
-        about experiment (file in templates folder)
-        * File locations for image stacks should be entered in 'src_folder_directory' column
-    2. Save input_2photon.xlsx in parent folder of data folders (as defined in #2 above) and copy [data-sharing/share.py](data-sharing/share.py) to same root folder
-    3. Activate python virtual environment
-        * (Windows) Run 'activate.ps1' in Scripts folder of virtual environment
-        * (Linux/Mac) Run 'source activate' in bin folder of virtual environment
-    4. Run python share.py -i input_2photon.xlsx
-        * Note: The arguments passed to share.py change how it runs and where to find input (Excel) file
-  
-    
+    1. Experimenter should download [Matlab/input_widefield_2P.xlsx](Matlab/input_widefield_2P.xlsx), complete spreadsheet with relevant information about each experiment (file in Matlab folder)
+        * File locations for images should be entered in 'src_folder_directory' column
+    2. Experimenter should download [Matlab/Widefield_2Photon_nwb.m](Matlab/Widefield_2Photon_nwb.m), update sections with the desired entries to the nwb file (file in Matlab folder)
+    3. Download the matnwb package [here](https://www.mathworks.com/matlabcentral/fileexchange/67741-neurodatawithoutborders-matnwb) or through the Matlab Add-On Explorer. 
+    4. Update the Widefield_2Photon_nwb.m file as needed
+        * input_path and output_path
+        * subj_* information
+        * each section for nwb file entries, now labeled as Figure_x
+    5. Run Widefield_2Photon_nwb.m in Matlab to create nwb files.
 
 ## Steps for validating NWB files (manual)
 
