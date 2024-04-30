@@ -16,12 +16,13 @@
 
     1. (WIP) Search share.py code for 'VALIDATE .NWB FILE' for how to do this.
         * NWB Inspector [https://github.com/NeurodataWithoutBorders/nwbinspector](https://github.com/NeurodataWithoutBorders/nwbinspector) is used for validation of output files
+    2. In PowerShell, open python virtual environment: "python -m venv nwb"
+    3. Run nwbinspector on your nwb file: "nwbinspector output_path\Figure1.nwb" where "Figure1.nwb" is your nwb file name. 
+    4. Correct all critical issues by editing and re-running Widefield_2Photon_nwb.m
 
 ## Required Files
 
 ---
 
-- data-sharing/share.py (Main python script for running conversion from image tif image stacks to NWB format)
-  * Note: Default output files stored in 'output' folder (script creates if it does not exist)  
-- templates/input_2photon.xlsx (Contains meta-data about experiment and locations of image stacks)
-  * Note: This file is parsed by share.py
+- Matlab/input_widefield_2P.xlsx (Contains meta-data about experiment and locations of image stacks)
+- Matlab/Widefield_2Photon_nwb.m 
