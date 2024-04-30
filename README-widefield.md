@@ -9,7 +9,7 @@
     4. Update the Widefield_2Photon_nwb.m file as needed
         * input_path and output_path
         * subj_* information
-        * dynamic table; general purpose holder for scatter plot or histogram data. Documentation https://neurodatawithoutborders.github.io/matnwb/tutorials/html/dynamic_tables.html.
+        * dynamic table; general purpose holder for scatter plot or histogram data. Documentation [here]https://neurodatawithoutborders.github.io/matnwb/tutorials/html/dynamic_tables.html.
         * time series; holder for time-series data. Time points or rate and starting time are required. For constant-rate data nwb prefers single start time and sample rate. Documentation [here](https://neurodatawithoutborders.github.io/matnwb/doc/+types/+core/TimeSeries.html).
         * other data types (images etc.) can be added by following the documentation [here](https://neurodatawithoutborders.github.io/matnwb/doc/NwbFile.html).
     5. Run Widefield_2Photon_nwb.m in Matlab to create nwb files.
