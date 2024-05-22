@@ -1,5 +1,5 @@
-%Fig2_Master_nwb.m
-%version4_23_24 Jacob D. Duane R.
+%Widefield_2Photon_nwb.m
+%version5_22_24 Jacob D. Duane R.
 
 %% Master TODO
 %Add subjects DONE
@@ -95,9 +95,9 @@ for subj = 1:length(subtable.age)
         flux_Hz = table.flux_Hz;
         diameter_um = 2.*table.radius_um;
 
-        timeseries_flux = nwb.acquisition.set('FluxTraceFig1D', types.core.TimeSeries('data', flux_Hz, 'description', 'FluxTrace (Hz)','data_unit','Hz',...
+        timeseries_flux = nwb.acquisition.set('FluxTrace1D', types.core.TimeSeries('data', flux_Hz, 'description', 'FluxTrace (Hz)','data_unit','Hz',...
             'timestamps',time));
-        timeseries_diameter = nwb.acquisition.set('DiameterTraceFig1D', types.core.TimeSeries('data', diameter_um, 'description', 'DiameterTrace (um)','data_unit','um',...
+        timeseries_diameter = nwb.acquisition.set('DiameterTrace1D', types.core.TimeSeries('data', diameter_um, 'description', 'DiameterTrace (um)','data_unit','um',...
             'timestamps',time));
     end
     %% Figure 1E Start
@@ -143,7 +143,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1E_BinEdges;
-        nwb.analysis.set('Diameter Modulation Joint Distribution 1E Edges', table_1E_BinEdges);
+        nwb.analysis.set('DiameterModulationJointDistributionEdges1E', table_1E_BinEdges);
     end
     %% Figure 1F Start
     if contains(subj_figs,' 1f')
@@ -171,7 +171,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1F_Traces;
-        nwb.analysis.set('Flux Modulation Joint Distribution 1F Traces', table_1F_Traces);
+        nwb.analysis.set('FluxModulationJointDistributionTraces1F', table_1F_Traces);
 
         %Assign to dynamic table
         col1 = types.hdmf_common.VectorData( ...
@@ -188,7 +188,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1F_BinEdges;
-        nwb.analysis.set('Flux Modulation Joint Distribution 1F Edges', table_1F_BinEdges);
+        nwb.analysis.set('FluxModulationJointDistributionEdges1F', table_1F_BinEdges);
     end
 
     %% Figure 1G Start
@@ -217,7 +217,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1G_Traces;
-        nwb.analysis.set('Flux Diameter Modulation Joint Distribution 1G Traces', table_1G_Traces);
+        nwb.analysis.set('FluxDiameterModulationJointDistributionTraces1G', table_1G_Traces);
 
         %Assign to dynamic table
         col1 = types.hdmf_common.VectorData( ...
@@ -234,7 +234,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1G_BinEdges;
-        nwb.analysis.set('Flux Diameter Modulation Joint Distribution 1G Edges', table_1G_BinEdges);
+        nwb.analysis.set('FluxDiameterModulationJointDistributionEdges1G', table_1G_BinEdges);
     end
 
     %% Figure 1H Start
@@ -274,7 +274,7 @@ for subj = 1:length(subtable.age)
             );
         table_1H_Pia;
 
-        nwb.analysis.set('Pia_Diameter_Modulation', table_1H_Pia);
+        nwb.analysis.set('PiaDiameterModulation1H', table_1H_Pia);
 
         %Assign to dynamic table: PA
         col1 = types.hdmf_common.VectorData( ...
@@ -296,7 +296,7 @@ for subj = 1:length(subtable.age)
             );
         table_1H_PA;
 
-        nwb.analysis.set('PA_Diameter_Modulation', table_1H_PA);
+        nwb.analysis.set('PADiameterModulation1H', table_1H_PA);
     end
     %% Figure 1I start
     if contains(subj_figs,' 1i')
@@ -335,7 +335,7 @@ for subj = 1:length(subtable.age)
             );
         table_1I_Pia;
 
-        nwb.analysis.set('Pia_Flux_Modulation', table_1I_Pia);
+        nwb.analysis.set('PiaFluxModulation1I', table_1I_Pia);
 
         %Assign to dynamic table: PA
         col1 = types.hdmf_common.VectorData( ...
@@ -357,7 +357,7 @@ for subj = 1:length(subtable.age)
             );
         table_1I_PA;
 
-        nwb.analysis.set('PA_Flux_Modulation', table_1I_PA);
+        nwb.analysis.set('PAFluxModulation1I', table_1I_PA);
     end
     %% Figure 1J start
     if contains(subj_figs,' 1j')
@@ -395,7 +395,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1I_Pia;
-        nwb.analysis.set('Pia_Flux_Diameter_Modulation', table_1I_Pia);
+        nwb.analysis.set('PiaFluxDiameterModulation1J', table_1I_Pia);
 
         %Assign to dynamic table: Pia
         col1 = types.hdmf_common.VectorData( ...
@@ -416,7 +416,7 @@ for subj = 1:length(subtable.age)
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
         table_1I_PA;
-        nwb.analysis.set('PA_Flux_Diameter_Modulation', table_1I_PA);
+        nwb.analysis.set('PAFluxDiameterModulation1J', table_1I_PA);
     end
     %% Figure 2C start
     if contains(subj_figs,' 2c')
@@ -434,9 +434,9 @@ for subj = 1:length(subtable.age)
         % Must have all 3: starting_time, starting_time_rate, starting_time_unit ||
         % timestamps, timestamps_interval, timestamps_unit
 
-        timeseries_shallow = nwb.acquisition.set('PenA_ShallowTrace', types.core.TimeSeries('data', dshallow, 'description', 'DiameterTrace (um), comprises Fig2C with DeepTrace','data_unit','seconds',...
+        timeseries_shallow = nwb.acquisition.set('PAShallowTrace2C', types.core.TimeSeries('data', dshallow, 'description', 'DiameterTrace (um), comprises Fig2C with DeepTrace','data_unit','seconds',...
             'starting_time',double(0),'starting_time_rate',single(7.25),'starting_time_unit','Hz'));
-        timeseries_deep = nwb.acquisition.set('PenA_DeepTrace', types.core.TimeSeries('data', ddeep, 'description', 'DiameterTrace (um), comprises Fig2C with DeepTrace','data_unit','seconds',...
+        timeseries_deep = nwb.acquisition.set('PADeepTrace2C', types.core.TimeSeries('data', ddeep, 'description', 'DiameterTrace (um), comprises Fig2C with DeepTrace','data_unit','seconds',...
             'starting_time',double(0.069),'starting_time_rate',single(7.25),'starting_time_unit','Hz'));
         disp(['Processing2C',subj_session_id])
 %         log2C{counter} = subj_session_id;
@@ -489,7 +489,7 @@ for subj = 1:length(subtable.age)
             );
         table_2D;
 
-        nwb.analysis.set('PenA_PenV_Spectra', table_2D);
+        nwb.analysis.set('PAPVSpectra2D', table_2D);
     end
     %% Figure 2E start
     if contains(subj_figs,' 2e')
@@ -534,7 +534,7 @@ for subj = 1:length(subtable.age)
             );
         table_2E;
 
-        nwb.analysis.set('PenA_Modulation_Amplitude', table_2E);
+        nwb.analysis.set('PAModulationAmplitude2E', table_2E);
     end
 
     %% Figure 2H start
@@ -565,7 +565,7 @@ for subj = 1:length(subtable.age)
             );
         table_2H;
 
-        nwb.analysis.set('PenA_WeightVsK', table_2H);
+        nwb.analysis.set('PAWeightVsK2H', table_2H);
     end
     %% Figure 2F start
     if contains(subj_figs,' 2f')
@@ -595,7 +595,7 @@ for subj = 1:length(subtable.age)
             );
         table_2F;
 
-        nwb.analysis.set('PenA_FvsK', table_2F);
+        nwb.analysis.set('PAFvsK2F', table_2F);
     end
     %% Figure 3C
     if contains(subj_figs,' 3c')
@@ -607,9 +607,9 @@ for subj = 1:length(subtable.age)
         wave = resultsmat.wave;
         avgdiam = mean(diam,1)';
         avgwave = mean(wave,1)';
-        timeseries_diam = nwb.acquisition.set('DiameterAverageTrace', types.core.TimeSeries('data', avgdiam, 'description', 'Diameter Trace (um)','data_unit','um',...
+        timeseries_diam = nwb.acquisition.set('DiameterAverageTrace3C', types.core.TimeSeries('data', avgdiam, 'description', 'Diameter Trace (um)','data_unit','um',...
             'timestamps',time))
-        timeseries_Ca = nwb.acquisition.set('DiameterTrace', types.core.TimeSeries('data', avgwave, 'description', 'GCaMP8.1 Signal Trace (df/f)','data_unit','df/f',...
+        timeseries_Ca = nwb.acquisition.set('CalciumAverageTrace3C', types.core.TimeSeries('data', avgwave, 'description', 'GCaMP8.1 Signal Trace (df/f)','data_unit','df/f',...
             'timestamps',time))
     end
     %% Figure 3D
@@ -639,7 +639,7 @@ for subj = 1:length(subtable.age)
             );
         table_3D;
 
-        nwb.analysis.set('Ca_DiameterCrossCorrelation', table_3D);
+        nwb.analysis.set('CaDiameterCrossCorrelation3D', table_3D);
      end
 
      %% Figure 4B start
@@ -664,7 +664,7 @@ for subj = 1:length(subtable.age)
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PiaRestR2vsK', table_4B);
+         nwb.analysis.set('PiaRestR2vsK4B', table_4B);
      end
      %% Figure 4C start
      %DO NOT PUT UNITS IN "TYPES.HDMF_COMMON.DYNAMICTABLE", ONLY PUT UNITS
@@ -686,12 +686,12 @@ for subj = 1:length(subtable.age)
          table_4C = types.hdmf_common.DynamicTable( ...
              'description', 'analysis table', ...
              'Phase Grad', col1, ...
-             'Frequency (Hz)', col2, ...
+             'Frequency', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
          table_4C;
 
-         nwb.analysis.set('PiaRestfvsK', table_4C);
+         nwb.analysis.set('PiaRestfvsK4C', table_4C);
      end
 
      %% Figure 4D start
@@ -723,7 +723,7 @@ for subj = 1:length(subtable.age)
              );
          table_4D;
 
-         nwb.analysis.set('PiaRestDKvsK', table_4D);
+         nwb.analysis.set('PiaRestDKvsK4D', table_4D);
      end
 
      %% Start Figure 4E
@@ -747,7 +747,7 @@ for subj = 1:length(subtable.age)
              'Stimulated Magnitude Coherence', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaRestStimCoherence', table_4E_Coh);
+         nwb.analysis.set('PiaRestStimCoherence4E', table_4E_Coh);
           %Create dynamic table
          col1 = types.hdmf_common.VectorData( ...
              'description', 'Histogram Bin Edges', ...
@@ -758,7 +758,7 @@ for subj = 1:length(subtable.age)
              'Bin Edges', col1, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaRestStimCoherence', table_4E_BinEdges);
+         nwb.analysis.set('PiaRestStimCoherenceEdges4E', table_4E_BinEdges);
      end
      %% Start Figure 4F
      if contains(subj_figs,' 4f')
@@ -782,7 +782,7 @@ for subj = 1:length(subtable.age)
              'Neuronal Phase Gradient', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaRestStimCoherence', table_4F_kv_vs_kn);
+         nwb.analysis.set('PiaRestKvKn4F', table_4F_kv_vs_kn);
          %Create dynamic table
          col1 = types.hdmf_common.VectorData( ...
              'description', 'Magnitude K; kv kn in quadrature (rad/mm)', ...
@@ -801,7 +801,7 @@ for subj = 1:length(subtable.age)
              'Connected Correlation SE',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaVesselNeuralKCorrelation', table_4F_correlation);
+         nwb.analysis.set('PiaVesselNeuralKCorrelation4F', table_4F_correlation);
      end
      %% Start Figure 5A
      if contains(subj_figs,' 5a')
@@ -886,7 +886,7 @@ for subj = 1:length(subtable.age)
              'Phase SD',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PAStimPhase', table_5A_phase);
+         nwb.analysis.set('PAStimPhase5A', table_5A_phase);
 
 
          % calc and plot resid spectrum
@@ -935,7 +935,7 @@ for subj = 1:length(subtable.age)
              'Phase', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PAStimSpectrum', table_5A_spectrum);
+         nwb.analysis.set('PAStimSpectrum5A', table_5A_spectrum);
          %Create dynamic table
          col1 = types.hdmf_common.VectorData( ...
              'description', 'Extracted Freqs (Hz)', ...
@@ -954,7 +954,7 @@ for subj = 1:length(subtable.age)
              'Extracted Power',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PAStimExtractedPower', table_5A_extractedpower);
+         nwb.analysis.set('PAStimExtractedPower5A', table_5A_extractedpower);
      end
      %% Start Figure 5B
      if contains(subj_figs,' 5b')
@@ -984,7 +984,7 @@ for subj = 1:length(subtable.age)
              'PA Stim Phase Gradient', col1, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PAStimPhaseGradient', table_5B_PhaseGrad);
+         nwb.analysis.set('PAStimPhaseGradient5B', table_5B_PhaseGrad);
          %Create dynamic table
          col1 = types.hdmf_common.VectorData( ...
              'description', 'Histogram Bin Edges', ...
@@ -995,7 +995,7 @@ for subj = 1:length(subtable.age)
              'Bin Edges', col1, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PAStimPhaseGradientBinEdges', table_5B_BinEdges);
+         nwb.analysis.set('PAStimPhaseGradientBinEdges5B', table_5B_BinEdges);
      end
      %% Start Figure 5C
 %      if contains(subj_figs,' 5c')
@@ -1213,7 +1213,7 @@ for subj = 1:length(subtable.age)
              'Weights, R2',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaStimFvsK', table_5C_FvsK);
+         nwb.analysis.set('PiaStimFvsK5C', table_5C_FvsK);
 
      end
      %% Figure 6B
@@ -1276,7 +1276,7 @@ for subj = 1:length(subtable.age)
              'Mode 10 Power',col11,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('VesselModeSpectra', table_6B_VesselSpec);
+         nwb.analysis.set('VesselGRAFTModeSpectra6B', table_6B_VesselSpec);
          close all
      end
      %% Figure 6C
@@ -1339,7 +1339,7 @@ for subj = 1:length(subtable.age)
              'Mode 10 Power',col11,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('NeuronsModeSpectra', table_6C_NeuralSpec);
+         nwb.analysis.set('NeuronsGRAFTModeSpectra6C', table_6C_NeuralSpec);
          close all
      end
      %% Figure 6D
@@ -1396,7 +1396,7 @@ for subj = 1:length(subtable.age)
              'Pial Mode 10 Neu Mode 1-10',col10,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTSpatialCorrMat', table_6D_SpatialCorrMat);
+         nwb.analysis.set('GRaFTSpatialCorrMat6D', table_6D_SpatialCorrMat);
          close all
      end
      %% Figure 6E
@@ -1453,7 +1453,7 @@ for subj = 1:length(subtable.age)
              'Pial Mode 10 Neu Mode 1-10',col10,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTSpecCohMat', table_6E_SpecCohMat);
+         nwb.analysis.set('GRaFTSpecCohMat6E', table_6E_SpecCohMat);
          close all
      end
 %% Figure 6F
@@ -1508,7 +1508,7 @@ if contains(subj_figs,' 6f')
         label_x{9}, col9, ...
         'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
         );
-    nwb.analysis.set('GRaFTRsquareRestVesselsFromNeuronsTrain', table_6F_train);
+    nwb.analysis.set('GRaFTRsquareRestVesselsFromNeuronsTrain6F', table_6F_train);
 
     %TESTING DATA
     col1 = types.hdmf_common.VectorData( ...
@@ -1553,7 +1553,7 @@ if contains(subj_figs,' 6f')
         label_x{9}, col9, ...
         'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
         );
-    nwb.analysis.set('GRaFTRsquareRestVesselsFromNeuronsTest', table_6F_test);
+    nwb.analysis.set('GRaFTRsquareRestVesselsFromNeuronsTest6F', table_6F_test);
 end
      %% Figure S2A
 if contains(subj_figs,' S2a')
@@ -1572,7 +1572,7 @@ if contains(subj_figs,' S2a')
         'Flux-Diameter Corr', col1, ...
         'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
         );
-    nwb.analysis.set('FluxDiamCorrRest', table_S2A_Corr);
+    nwb.analysis.set('FluxDiamCorrRestS2A', table_S2A_Corr);
 
     col1 = types.hdmf_common.VectorData( ...
         'description', 'Flux-Diameter lag (s)', ...
@@ -1583,7 +1583,7 @@ if contains(subj_figs,' S2a')
         'Flux-Diameter Lag (s)', col1, ...
         'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
         );
-    nwb.analysis.set('FluxDiamLagRest', table_S2A_Lag);
+    nwb.analysis.set('FluxDiamLagRestS2A', table_S2A_Lag);
          close all;
 end
      %% S2B
@@ -1608,7 +1608,7 @@ end
              'PA Change in Diameter (um)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PARawChangeinDiameter', table_S2B_Dd);
+         nwb.analysis.set('PARawChangeinDiameterS2B', table_S2B_Dd);
          close all;
      end
      %% S2C
@@ -1633,7 +1633,7 @@ end
              'Pia Change in Diameter (um)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PiaRawChangeinDiameter', table_S2C_Dd);
+         nwb.analysis.set('PiaRawChangeinDiameterS2C', table_S2C_Dd);
          close all;
      end
 
@@ -1660,7 +1660,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PARawChangeinFlux', table_S2D_Dq);
+         nwb.analysis.set('PARawChangeinFluxS2D', table_S2D_Dq);
                   close all;
      end
      %% S2E
@@ -1686,7 +1686,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PiaRawChangeinFlux', table_S2E_Dq);
+         nwb.analysis.set('PiaRawChangeinFluxS2E', table_S2E_Dq);
                   close all;
      end
      %% S2F
@@ -1712,7 +1712,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PARawChangeinFluxVsFlux', table_S2F_Dq);
+         nwb.analysis.set('PARawChangeinFluxVsFluxS2F', table_S2F_Dq);
                   close all;
      end
 
@@ -1739,7 +1739,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PiaRawChangeinFluxVsFlux', table_S2G_Dq);
+         nwb.analysis.set('PiaRawChangeinFluxVsFluxS2G', table_S2G_Dq);
                   close all;
      end
      %% S2H
@@ -1765,7 +1765,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PAHeartRateRMSDiameterChange', table_S2H_RMSd_PA);
+         nwb.analysis.set('PAHeartRateRMSDiameterChangeS2H', table_S2H_RMSd_PA);
 
          clearvars x y
          h = findobj(gca,'Type','scatter');
@@ -1786,7 +1786,7 @@ end
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
 
-         nwb.analysis.set('PiaHeartRateRMSDiameterChange', table_S2H_RMSd_Pia);
+         nwb.analysis.set('PiaHeartRateRMSDiameterChangeS2H', table_S2H_RMSd_Pia);
          close all;
          end
 
@@ -1814,7 +1814,7 @@ end
              'diam trace', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Diameter Modulation Joint Distribution S3A Traces', table_S3A_Traces);
+         nwb.analysis.set('DiameterModulationJointDistributionTracesS3A', table_S3A_Traces);
 
          %Assign to dynamic table
          col1 = types.hdmf_common.VectorData( ...
@@ -1830,7 +1830,7 @@ end
              'diam bin edges', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Diameter Modulation Joint Distribution S3A Edges', table_S3A_BinEdges);
+         nwb.analysis.set('DiameterModulationJointDistributionEdgesS3A', table_S3A_BinEdges);
      end
 
      %% Figure S3B Start
@@ -1857,7 +1857,7 @@ end
              'flux trace', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Flux Modulation Joint Distribution S3B Traces', table_S3B_Traces);
+         nwb.analysis.set('FluxModulationJointDistributionTracesS3B', table_S3B_Traces);
 
          %Assign to dynamic table
          col1 = types.hdmf_common.VectorData( ...
@@ -1873,7 +1873,7 @@ end
              'flux bin edges', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Flux Modulation Joint Distribution S3A Edges', table_S3B_BinEdges);
+         nwb.analysis.set('FluxModulationJointDistributionEdgesS3A', table_S3B_BinEdges);
      end
 
 
@@ -1902,7 +1902,7 @@ end
              'normalized flux trace', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Flux Diameter Modulation Joint Distribution S3C Traces', table_S3C_Traces);
+         nwb.analysis.set('FluxDiameterModulationJointDistributionTracesS3C', table_S3C_Traces);
 
          %Assign to dynamic table
          col1 = types.hdmf_common.VectorData( ...
@@ -1918,7 +1918,7 @@ end
              'normalized flux bin edges', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Flux Diameter Modulation Joint Distribution S3C Edges', table_S3C_BinEdges);
+         nwb.analysis.set('FluxDiameterModulationJointDistributionEdgesS3C', table_S3C_BinEdges);
      end
      %% Figure S3D Start
      if contains(subj_figs,' S3d')
@@ -1955,7 +1955,7 @@ end
              'Pia Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Pia Diameter Modulation S3D', table_S3D_Pia);
+         nwb.analysis.set('PiaDiameterModulationS3D', table_S3D_Pia);
 
          %Assign to dynamic table: PA
          col1 = types.hdmf_common.VectorData( ...
@@ -1975,7 +1975,7 @@ end
              'PA Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PA Diameter Modulation S3D', table_S3D_PA);
+         nwb.analysis.set('PADiameterModulationS3D', table_S3D_PA);
      end
 
 
@@ -2014,7 +2014,7 @@ end
              'Pia Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Pia Flux Modulation S3E', table_S3E_Pia);
+         nwb.analysis.set('PiaFluxModulationS3E', table_S3E_Pia);
 
          %Assign to dynamic table: PA
          col1 = types.hdmf_common.VectorData( ...
@@ -2034,7 +2034,7 @@ end
              'PA Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PA Flux Modulation S3E', table_S3E_PA);
+         nwb.analysis.set('PAFluxModulationS3E', table_S3E_PA);
      end
      %% Figure S3F Start
      if contains(subj_figs,' S3f')
@@ -2071,7 +2071,7 @@ end
              'Pia Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Pia Flux Diameter Modulation S3F', table_S3F_Pia);
+         nwb.analysis.set('PiaFluxDiameterModulationS3F', table_S3F_Pia);
 
          %Assign to dynamic table: Pia
          col1 = types.hdmf_common.VectorData( ...
@@ -2091,7 +2091,7 @@ end
              'PA Average Diameter',col3,...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PA Flux Diameter Modulation S3F', table_S3F_PA);
+         nwb.analysis.set('PAFluxDiameterModulationS3F', table_S3F_PA);
      end
 
      %% Figure S4B Start
@@ -2107,9 +2107,9 @@ end
         flux_Hz = table.flux_trace;
         diameter_um = table.diam_trace;
 
-        timeseries_flux = nwb.acquisition.set('FluxTraceFigS4B', types.core.TimeSeries('data', flux_Hz, 'description', 'FluxTrace (Hz)','data_unit','Hz',...
+        timeseries_flux = nwb.acquisition.set('FluxTraceReaChRS4B', types.core.TimeSeries('data', flux_Hz, 'description', 'FluxTrace (Hz)','data_unit','Hz',...
             'timestamps',time));
-        timeseries_diameter = nwb.acquisition.set('DiamTraceFigS4B', types.core.TimeSeries('data', diameter_um, 'description', 'DiameterTrace (um)','data_unit','um',...
+        timeseries_diameter = nwb.acquisition.set('DiamTraceReaChRS4B', types.core.TimeSeries('data', diameter_um, 'description', 'DiameterTrace (um)','data_unit','um',...
             'timestamps',time));
     end
     %% Figure S4C Start (Joint distribution 2d histogram like 1
@@ -2137,7 +2137,7 @@ end
             'normalized flux trace', col2, ...
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
-        nwb.analysis.set('Flux Diameter Modulation Joint Distribution S4C Traces', table_S4C_Traces);
+        nwb.analysis.set('FluxDiameterModulationJointDistributionTracesReaChRS4C', table_S4C_Traces);
 
         %Assign to dynamic table
         col1 = types.hdmf_common.VectorData( ...
@@ -2153,7 +2153,7 @@ end
             'normalized flux bin edges', col2, ...
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
-        nwb.analysis.set('Flux Diameter Modulation Joint Distribution S4C Edges', table_S4C_BinEdges);
+        nwb.analysis.set('FluxDiameterModulationJointDistributionEdgesReaChRS4C', table_S4C_BinEdges);
     end
 
      %% Figure S4D Start
@@ -2188,7 +2188,7 @@ end
             'Pia Average Diameter',col3,...
             'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
             );
-        nwb.analysis.set('PiaFluxDiameterModulationReaChR', table_S4D_Pia);
+        nwb.analysis.set('PiaFluxDiameterModulationReaChRS4D', table_S4D_Pia);
     end
 
      %% Figure S5 Start
@@ -2215,7 +2215,7 @@ end
              'Average correlation', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('PA Travel Direction Correlation Figure S5', table_S5_Pts);
+         nwb.analysis.set('PATravelDirectionCorrelationS5', table_S5_Pts);
      end
      %% Figure S6A Start
     if contains(subj_figs,' S6a')
@@ -2266,7 +2266,7 @@ end
              'Diameter Spectrum Upper 95%CI', col7, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Average GCaMP8.1 and Diamter Spectra Figure S6A', table_S6A_Pts);
+         nwb.analysis.set('AverageGCaMPandDiamterSpectra FigureS6A', table_S6A_Pts);
      end   
 
      %% Figure S6B Start
@@ -2303,7 +2303,7 @@ end
              'Ca-D Coherence Upper 95%CI', col4, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Average GCaMP8.1 and Diamter Coherence Figure S6B', table_S6B_Pts);
+         nwb.analysis.set('AverageGCaMPandDiamterCoherenceFigureS6B', table_S6B_Pts);
 
          %PHASE
          table = readtable("Y:\DataAnalysis\VesCorrPhase\IndividualFigures\FigS6\CaDPhase.csv");
@@ -2330,7 +2330,7 @@ end
              'Ca-D Phase 2SD', col3, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Average GCaMP8.1 and Diamter Phase Figure S6B', table_S6B_Phase);         
+         nwb.analysis.set('AverageGCaMPandDiamterPhaseFigureS6B', table_S6B_Phase);         
 
      end   
      %% Figure S6C Start
@@ -2354,7 +2354,8 @@ end
              'Vessel Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression S6C', table_S6C_Pts);
+         nwb.analysis.set('VascularPhaseProgressionS6C', table_S6C_Pts);
+
         %Neuronal phase progression
          table = readtable("Y:\DataAnalysis\VesCorrPhase\IndividualFigures\FigS6\S6C\NeuPhaseProgressionS6C.csv");
          dist = table.dist;
@@ -2373,7 +2374,7 @@ end
              'Neuron Signal Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Neuronal Phase Progression S6C', table_S6C_Neu_Pts);
+         nwb.analysis.set('NeuronalPhaseProgressionS6C', table_S6C_Neu_Pts);
 
      end
      %% Figure S7A
@@ -2428,7 +2429,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareRestNeuronsFromVesselsTrain', table_S7A_train);
+         nwb.analysis.set('GRaFTRsquareRestNeuronsFromVesselsTrainS7A', table_S7A_train);
 
          %TESTING DATA
          col1 = types.hdmf_common.VectorData( ...
@@ -2473,7 +2474,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareRestNeuronsFromVesselsTest', table_S7A_test);
+         nwb.analysis.set('GRaFTRsquareRestNeuronsFromVesselsTestS7A', table_S7A_test);
 
      end
 
@@ -2528,7 +2529,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareStimNeuronsFromVesselsTrain', table_S7B_train);
+         nwb.analysis.set('GRaFTRsquareStimNeuronsFromVesselsTrainS7B', table_S7B_train);
 
          %TESTING DATA
          col1 = types.hdmf_common.VectorData( ...
@@ -2573,7 +2574,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareStimNeuronsFromVesselsTest', table_S7B_test);
+         nwb.analysis.set('GRaFTRsquareStimNeuronsFromVesselsTestS7B', table_S7B_test);
      end
      %% Figure S7C
      if contains(subj_figs,' S7c')
@@ -2626,7 +2627,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareStimVesselsFromNeuronsTrain', table_S7C_train);
+         nwb.analysis.set('GRaFTRsquareStimVesselsFromNeuronsTrainS7C', table_S7C_train);
 
          %TESTING DATA
          col1 = types.hdmf_common.VectorData( ...
@@ -2671,7 +2672,7 @@ end
              label_x{9}, col9, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('GRaFTRsquareStimVesselsFromNeuronsTest', table_S7C_test);
+         nwb.analysis.set('GRaFTRsquareStimVesselsFromNeuronsTestS7C', table_S7C_test);
      end
      %% Figure S8A
      if contains(subj_figs,' S8a')
@@ -2689,69 +2690,14 @@ end
              'data', phase);
          table_S8A_Pts = types.hdmf_common.DynamicTable( ...
              'description', 'analysis table', ...
-             'Distance (mm)', col1, ...
-             'Vessel Phase (rad)', col2, ...
+             'Distance', col1, ...
+             'Vessel Phase', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression 3 S8C', table_S8A_Pts);
+         nwb.analysis.set('VascularPhaseProgressionS8A', table_S8A_Pts);
 
      end
-     %% Figure S8B
-%      if contains(subj_figs,' S8b')
-%          clearvars -except log2C counter subj_session_id counter input_path subj_figs subtable subj nwb output_path
-%          load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\alpha0_01\files_allspeeds.mat");
-% 
-%          for i = 1:length(files)
-%              files(i).meanlength = mean(files(i).all_length);
-%              minlen(i) = min(files(i).all_length);
-%              maxlen(i) = max(files(i).all_length);
-%          end
-%          lengths = [files.meanlength];
-%          speed = [files.speed];
-%          speedSE = [files.speedSE];
-%          lengthlowerlim = lengths - minlen;
-%          lengthupperlim = maxlen - lengths;
-%          colormat = zeros(length(lengths),3);
-%          colormat(:,3) = 1;
-% 
-% %          figure
-% %          errorbar(lengths,speed,speedSE,speedSE,lengthlowerlim,lengthupperlim,"o",'LineWidth',1,'Color','k');
-% %          hold on;
-% %          scatter(lengths,speed,25,colormat,'filled');
-% %          xlabel('Average vessel length analyzed (mm)','Interpreter','latex');
-% %          ylabel('$Ca^{2+}$ wave speed (from $f$ vs $|k|$ fit)','Interpreter','latex');
-% %          title({'$Ca^{2+}$ wave speeds calculated on different vessel segment lengths','Red = our full dataset ($>$0.75mm), Blue = Shorter vessel segments chosen randomly'},'Interpreter','latex');
-% %          xlim([0 2]); ylim([0.5 2.5]);
-%          
-%          %Assign to dynamic table
-%          col1 = types.hdmf_common.VectorData( ...
-%              'description', 'Mean Distance (mm)', ...
-%              'data', lengths);
-%          col1_len = length(col1.data);
-%          col2 = types.hdmf_common.VectorData( ...
-%              'description', 'Speed (mm/s)', ...
-%              'data', speed);
-%          col3 = types.hdmf_common.VectorData( ...
-%              'description', 'Speed SE (mm/s)', ...
-%              'data', speedSE);
-%          col4 = types.hdmf_common.VectorData( ...
-%              'description', 'Length Lower Limit (mm)', ...
-%              'data', lengthlowerlim);
-%          col5 = types.hdmf_common.VectorData( ...
-%              'description', 'Length Upper Limit (mm)', ...
-%              'data', lengthupperlim);         
-%          table_S8B_Pts = types.hdmf_common.DynamicTable( ...
-%              'description', 'analysis table', ...
-%              'Distance (mm)', col1, ...
-%              'Vessel Phase (rad)', col2, ...
-%              'Speed SE (mm/s)', col3, ...
-%              'Length Lower Limit (mm)', col4, ...
-%              'Length Upper Limit (mm)', col5, ...
-%              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
-%              );
-%          nwb.analysis.set('Vascular Wave Speeds at Different Lengths S8B', table_S8B_Pts);
-%         close all
-%      end
+    
 %% Figure S8B
      if contains(subj_figs,'S8b')
          clearvars -except log2C counter subj_session_id counter input_path subj_figs subtable subj nwb output_path
@@ -2805,7 +2751,7 @@ end
              'Length Upper Limit (mm)', col5, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Wave Speeds at Different Lengths S8B', table_S8B_Pts);
+         nwb.analysis.set('VascularWaveSpeedsatDifferentLengthsS8B', table_S8B_Pts);
 
      end
      %% Figure S8C
@@ -2829,7 +2775,7 @@ end
              'Vessel Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression 3 S8C', table_S8C_Pts);
+         nwb.analysis.set('VascularPhaseProgression3S8C', table_S8C_Pts);
          clearvars tmp phase dist
 
         load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves205.mat");
@@ -2849,7 +2795,7 @@ end
              'Vessel Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression 1 S8C', table_S8C_Pts);
+         nwb.analysis.set('VascularPhaseProgression1S8C', table_S8C_Pts);
          clearvars tmp phase dist     
 
         load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves26.mat");
@@ -2869,7 +2815,7 @@ end
              'Vessel Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression 2 S8C', table_S8C_Pts);
+         nwb.analysis.set('VascularPhaseProgression2S8C', table_S8C_Pts);
          clearvars tmp phase dist   
 
         load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves81.mat");
@@ -2889,7 +2835,7 @@ end
              'Vessel Phase (rad)', col2, ...
              'id', types.hdmf_common.ElementIdentifiers('data', linspace(1,col1_len,col1_len)) ...
              );
-         nwb.analysis.set('Vascular Phase Progression 4 S8C', table_S8C_Pts);
+         nwb.analysis.set('VascularPhaseProgression4S8C', table_S8C_Pts);
 
      end
 
