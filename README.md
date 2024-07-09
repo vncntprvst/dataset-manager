@@ -5,25 +5,27 @@
 Currently supported experimental data is:
 1. Extracellular electrophysiology (Intan -> NWB data conversion)
     + See [README-ephys.md](README-ephys.md) for detailed information
-2. Widefield Imaging (meta-data only)
+2. Widefield Imaging: 2-photon (Matlab)
+    + See [README-widefield.md](README-widefield.md) for detailed information
 3. 2 Photon Imaging (terminal)
    + See [README-2photon.md](README-2photon.md) for detailed information
-4. Behavioral (terminal) 
-5. Calcium imaging (WIP)
+4. Behavioral (terminal)
+5. fMRI (terminal)
+   + See [README-mri.md](README-mri.md) for detailed information
 
-## Steps for running (manual - terminal) -> send to data portal:
+## Steps for running python code (manual - terminal) -> send to data portal:
 
     1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
     2. Download and complete Excel sheet that most closely correponds to experiment
     3. Run with 'python share.py' and add terminal arguments as needed
 
-## Steps for running (manual - terminal) -> just conversion:
+## Steps for running python (manual - terminal) -> just conversion:
 
     1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
     2. Download and complete Excel sheet that most closely correponds to experiment
     3. Run with 'python prep.py' and add terminal arguments as needed
 
-## Steps for running (manual - Jupyter Notebook):
+## Steps for running python (manual - Jupyter Notebook):
 
     1. Activate python virtual environment with required modules (nwb on my computer) *see requirements.txt for installed modules
     2. Open jupyter notebook corresponding to experiment type
@@ -31,17 +33,22 @@ Currently supported experimental data is:
 
 Note: You will need input.xlsx for electrophysiology experiments (sample coming) for inclusion of raw data
 
+## Steps for Matlab (Widefield & Behavioral) -> just conversion:
+
+    1. Ask Jacob
+    2. 
+    3. 
 
 ## Features
 
 ---
 
-- Conversion for Intan format to NWB format
-- Ability to add tif image stacks to NWB files
+- Conversion for Intan format to NWB format (ePhys)
+- Ability to add tif image stacks to NWB files (Widefield, Behavioral)
 - Integration with back-end relational database (in progress), NoSQL database (in progress)
 - Ability to aggregate NWB containers (for uploading to NIH-approved respositories)
 
-## Installation
+## Python Installation
 
 ---
 
@@ -74,4 +81,4 @@ drinehart[at]ucsd.edu
 The project is licensed under the [MIT license](https://mit-license.org/).
 
 ---
-Last update: 14-MAR-2023
+Last update: 9-JUL-2024
