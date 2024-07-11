@@ -19,7 +19,6 @@ primary_experiments_table = readtable('\\birdstore.dk.ucsd.edu\data\Jacob\nwb_pr
 output_path = "C:\tmp\output\"; %NWB file written to this location
 summary_data_path = "Z:\drinehart\VesCorrPhase\"; %Duane test
 % summary_data_path = "Y:\DataAnalysis\VesCorrPhase"; %Jacob test
-recordings_data_path = "Z:\Jacob\nwb_process\test_stack";
 %#################################################################
 
 %PRE-PROCESSING / PREREQUISITES
