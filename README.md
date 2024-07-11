@@ -35,9 +35,8 @@ Note: You will need input.xlsx for electrophysiology experiments (sample coming)
 
 ## Steps for Matlab (Widefield & Behavioral) -> just conversion:
 
-    1. Ask Jacob
-    2. 
-    3. 
+    1. Install MatNWB as Matlab Add-On (Add-Ons button on top ribbon, search for 'nwb'; and click 'Add' button)
+    2. Install Image Processing toolbox Add-On (Add-Ons button on top ribbon, search for 'Image Processing Toolbox'; and click 'Add' button)
 
 ## Features
 
