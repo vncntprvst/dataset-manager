@@ -3,86 +3,72 @@
 
 function process_images(subj_id, recordings_data_file, nwb)
     % READ src_folder_directory LOCATION (EXCEL FILE)
-    disp(['PROCESSING RECORDINGS FOR: ', subj_id])
-    img_location = readtable(recordings_data_file{1});
+    disp(['DEBUG PROCESSING RECORDINGS FOR: ', subj_id])
+    recordings_table = readtable(recordings_data_file{1});
     
-    %for runnum = 1:length(img_location.runnum)
-    for runnum = 1:1
+    for runnum = 1:length(recordings_table.runnum)
         disp(['READING LOCATION: ', num2str(runnum)])
-    end
 
-     % how much of this info is in meta data text file?
-     imaging_plane_name = 'imaging_plane'; %name of experiment?
-     imaging_plane = types.core.ImagingPlane( ...
-         'optical_channel', 'GFP', ...
-         'description', 'pial and penetrating arterioles and veins', ...
-         'device', device1); %, ...
-         % 'excitation_lambda', 0, ...
-         % 'imaging_rate', 5., ...
-         % 'indicator', 'GFP', ...
-         % 'location', 'my favorite brain location');
-% 
-%     % process_images(src_folder_directory, imaging_plane, nwb) 
-%     %pass by reference to imageing_plane? Commented out for testing 7/10/24 JD
-% 
-%     % nwb.general_optophysiology.set(imaging_plane_name, imaging_plane);
-% 
-% 
-% 
-% 
-% 
-% 
-%     % READ src_folder_directory LOCATION (EXCEL FILE)
-%     % LOOP THROUGH EXCEL FILENAMES
-%     % READ IMAGE FILE
-%     % STORE IN NWB FORMAT
-% 
-%     disp(['READING LOCATION: ', src_folder_directory])
-%     img_location = readtable(src_folder_directory{1});
-% 
-%     % for runnum = 1:length(img_location.runnum)
-%     runnum = 1;
-% disp(['READING LOCATION: ', runnum])
-% 
-%         % TODO: read meta-data file for NWB
-% 
-%         current_folder = img_location.folder{runnum};
-%         tif_files = dir(fullfile(current_folder, '*.tif'));
-%         im1 = imread([tif_files(1).folder,'\',tif_files(1).name]);
-%         array_size = zeros(size(im1,1),size(im1,2),length(tif_files));
-% 
-%         ds = datastore(current_folder,"FileExtensions",".tif",'Type', 'image');
-%         img_data = tall(ds); %Need to "gather" the tall array before saving to nwb. Try using "matfile" instead. OR Process on computer with larger memory.
-% 
-%         % disp(['TIF files in folder: ' current_folder]);
-%         % for i = 1:length(tif_files)
-%         %     disp(tif_files(i).name);
-%         % end
-%         % disp(' ');
-% 
-%         % Define a file path for temporary storage
-%         temp_file = 'temp_image_data.mat';
-%         % Initialize matfile for writing
-%         matObj = matfile(temp_file, 'Writable', true);
-%         matObj.image_data = zeros(array_size, 'single'); % Adjust data type if needed
-% 
-% 
-% 
-%     % end
-% 
-% 
-% 
-%     %data will be array for image
-%     % img_data = ones(200, 100, 1000)
-% 
-% 
-%     InternalTwoPhoton = types.core.TwoPhotonSeries( ...
-%     'imaging_plane', imaging_plane, ...
-%     'starting_time', 0.0, ...
-%     'starting_time_rate', 3.0, ...
-%     'data', img_data); % , ...
-%     % 'data_unit', 'lumens');
-% 
-% nwb.acquisition.set('2pInternal', InternalTwoPhoton);
-%     %return imaging_plane
+        %% Add device object
+        device1 = types.core.Device( ...
+        'name', recordings_table.device_name(runnum), ...
+        'description', recordings_table.device_description(runnum));
+        nwb.general_devices.set('Imaging device',device1);
+
+        %% Add Imaging plane object [to store images]
+        % ref: https://neurodatawithoutborders.github.io/matnwb/doc/+types/+core/ImagingPlane.html
+        optical_channel = types.core.OpticalChannel( ...
+        'description', recordings_table.optical_channel_description(runnum), ...
+        'emission_lambda', recordings_table.optical_channel_emission_lambda(runnum));
+    
+        imaging_plane_name = 'imaging_plane'; %name of experiment?
+        imaging_plane = types.core.ImagingPlane( ...
+             'optical_channel', optical_channel, ...
+             'description', recordings_table.imaging_plane_description(runnum), ...
+             'device', device1); %, ...
+             'excitation_lambda', recordings_table.imaging_plane_exitation_lambda(runnum), ...
+             'imaging_rate', recordings_table.imaging_plane_imaging_rate(runnum), ...
+             'indicator', recordings_table.imaging_plane_indicator(runnum), ...
+             'location', recordings_table.imaging_plane_location(runnum);
+        nwb.general_optophysiology.set(imaging_plane_name, imaging_plane);
+        
+        %% Read all images into stack (var: im_data)
+        recordings_folder = char(recordings_table.recordings_folder(runnum));
+        file_listing = dir(fullfile(recordings_folder, '*.tif')); %filter for TIF image files
+        if ~isempty(file_listing)
+            disp(['Number of TIF files found: ', num2str(length(file_listing))]);
+
+            num_images = length(file_listing);
+            im_cell = cell(1, num_images);
+
+            for iter_im = 1:num_images
+                try
+                    % Construct full file path
+                    full_path = fullfile(file_listing(iter_im).folder, file_listing(iter_im).name);
+                    
+                    % Read the image and store in cell array
+                    im_cell{iter_im} = imread(full_path);
+                    
+                    disp(['Successfully read image ', num2str(iter_im), ': ', file_listing(iter_im).name]);
+                catch e
+                    warning(['Error reading file ', file_listing(iter_im).name, ': ', e.message]);
+                    im_cell{iter_im} = []; % Store empty array for failed reads
+                end
+            end
+
+            %stack images along 3rd axis
+            im_data = cat(3, im_cell{:});
+        end
+
+        %% Create 2Photon Series class to represent photon imaging data
+        % ref: https://neurodatawithoutborders.github.io/matnwb/doc/+types/+core/TwoPhotonSeries.html
+        InternalTwoPhoton = types.core.TwoPhotonSeries( ...
+            'imaging_plane', types.untyped.SoftLink(imaging_plane), ...
+            'data', im_data, ...
+            'comments', char(recordings_table.comments(runnum)));
+
+        nwb.acquisition.set('2pInternal', InternalTwoPhoton);
+
+    end
+    disp(['DEBUG: COMPLETED PROCESSING RECORDINGS FOR: ', subj_id])
 end

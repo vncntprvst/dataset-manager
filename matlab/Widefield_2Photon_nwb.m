@@ -78,14 +78,6 @@ for subj = 1:length(primary_experiments_table.age)
     nwb.general_subject = types.core.Subject();
     nwb.general_subject = tmp_Subject;
     nwb;
-
-    %% Add device object
-    subj_device = primary_experiments_table.device_name(subj);
-    subj_device_description = primary_experiments_table.device_description(subj);
-    device1 = types.core.Device( ...
-        'name', subj_device{1}, ...
-        'description', subj_device_description{1});
-    nwb.general_devices.set('Imaging device',device1);
    
     %#################################################################
     % PROCESS SUMMARY FIGURES BELOW %
@@ -96,7 +88,9 @@ for subj = 1:length(primary_experiments_table.age)
     %#################################################################
     % PROCESS [IMAGE] RECORDINGS BELOW %
     %#################################################################
-    ProcessImages(subj_id, recordings_data_file, nwb);
+    if ~isempty(recordings_data_file{1})
+        ProcessImages(subj_id, recordings_data_file, nwb);
+    end
 
      %% Final export start
      nwbExport(nwb, fullfile(output_path, ['Subject_',sprintf('%.0f',subj),'_',strrep(subj_session_id{1},'-','_'),'.nwb']));
@@ -127,6 +121,7 @@ end
 function GenTimeSeries(subj_figs, summary_data_path, nwb)
     addpath('FigFunctions\')
     Fig1D(subj_figs,summary_data_path,nwb);
+    Fig2C(subj_figs,summary_data_path,nwb);
     % FigS4B(subj_figs,summary_data_path,nwb);
 end
 %% #################################################################
@@ -138,7 +133,6 @@ function GenDynamicTables(subj_figs, summary_data_path, nwb)
     Fig1H(subj_figs,summary_data_path,nwb);
     Fig1I(subj_figs,summary_data_path,nwb);
     Fig1J(subj_figs,summary_data_path,nwb);
-    Fig2C(subj_figs,summary_data_path,nwb); %time series?
     Fig2D(subj_figs,summary_data_path,nwb);
     Fig2E(subj_figs,summary_data_path,nwb);
     Fig2H(subj_figs,summary_data_path,nwb);

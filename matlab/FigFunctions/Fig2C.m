@@ -1,4 +1,5 @@
 %Fig2C.m
+% Time Series
 
 function Fig2C(subj_figs,summary_data_path,nwb)
     clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
