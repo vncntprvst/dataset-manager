@@ -1,13 +1,12 @@
 %FigS4C.m
-% Dynamic Table
 
 function FigS4C(subj_figs,summary_data_path,nwb)
     clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' S4c')
         
-        traces_tbl = readtable("\\birdstore.dk.ucsd.edu\data\Jacob\Flux\DKLab\JDRLXJ\visualization\SuppFig\Flux_Diameter_Example_Traces_Supp4C.csv");
-        edges_tbl = readtable("\\birdstore.dk.ucsd.edu\data\Jacob\Flux\DKLab\JDRLXJ\visualization\SuppFig\Flux_Diameter_Example_Edges_Supp4C.csv");
-        
+        traces_tbl = readtable(strcat(summary_data_path,'\IndividualFigures\FigS4\C\Flux_Diameter_Example_Traces_Supp4C.csv'));
+        edges_tbl = readtable(strcat(summary_data_path,'\IndividualFigures\FigS4\C\Flux_Diameter_Example_Edges_Supp4C.csv'));
+    
         diam_trace = traces_tbl.d_trace_n;
         flux_trace = traces_tbl.flux_trace_n;
         diam_edges = edges_tbl.d_n_edge;

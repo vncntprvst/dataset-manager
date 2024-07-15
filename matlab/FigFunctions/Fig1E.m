@@ -2,6 +2,7 @@
 % Dynamic Table
 
 function Fig1E(subj_figs,summary_data_path,nwb)
+    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' 1e')
     
         traces_tbl = readtable(strcat(summary_data_path, '\IndividualFigures\Fig1\E\DiameterModExample_Traces_1E.csv'));

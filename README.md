@@ -5,11 +5,12 @@
 Currently supported experimental data is:
 1. Extracellular electrophysiology (Intan -> NWB data conversion)
     + See [README-ephys.md](README-ephys.md) for detailed information
-2. Widefield Imaging: 2-photon (Matlab)
+2. Widefield Imaging (Matlab & python)
     + See [README-widefield.md](README-widefield.md) for detailed information
 3. 2-Photon Imaging (terminal)
    + See [README-2photon.md](README-2photon.md) for detailed information
-4. Behavioral (terminal)
+4. Behavioral (Matlab or python)
+    + See [README-behavior.md](README-behavior.md) for detailed information
 5. fMRI (terminal)
    + See [README-mri.md](README-mri.md) for detailed information
 

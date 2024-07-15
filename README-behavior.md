@@ -1,6 +1,9 @@
 # **Behavior processing**
 
-## Steps for running (manual):
+Note:
+There are two different available scripts for processing behavioral studies' data.  Researcher should look at each method to determine which is most appropriate.
+
+## Steps for running (python version):
 
     1. Experimenter should download [templates/input_behavior.xlsx](templates/input_behavior.xlsx), complete spreadsheet with relevant information 
         about experiment
@@ -21,6 +24,12 @@
 
       Excel file has experimenters, institution headers however command line arguments will take priority
       If output folder is not defined, script will create folder in current working directory
+
+## Steps for running (Matlab version):
+
+    1. Copy Behavior_nwb.m to location on your computer
+    2. Modify Behavior_nwb.m [% APP CONSTANTS (DEFAULT) SECTION] for your actual storage locations
+        output_path = Location where NWB files will be written
 
 ## Steps for validating NWB files (manual):
 

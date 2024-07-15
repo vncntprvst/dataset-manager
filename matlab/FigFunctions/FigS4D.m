@@ -1,12 +1,11 @@
 %FigS4D.m
-% Dynamic Table
 
 function FigS4D(subj_figs,summary_data_path,nwb)
     clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' S4d')
     
-        table = readtable("\\birdstore.dk.ucsd.edu\data\Jacob\Flux\DKLab\JDRLXJ\visualization\Q_D_Fit_Intercepts\DKLab_JDRLXJ_flux_vs_radius_fit_slope_vsD_invVAR_ReaChRfit_med_stat.csv");
-    
+        table = readtable(strcat(summary_data_path,'\IndividualFigures\FigS4\D\DKLab_JDRLXJ_flux_vs_radius_fit_slope_vsD_invVAR_ReaChRfit_med_stat.csv'));
+        
         beta = table.q2r_k;
         beta_invVAR = table.q2r_invVAR;
         avg_diam = 2*table.avg_radius_um;

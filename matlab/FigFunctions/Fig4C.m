@@ -2,17 +2,15 @@
 % Dynamic Table
 
 function Fig4C(subj_figs,summary_data_path,nwb)
+    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
      %DO NOT PUT UNITS IN "TYPES.HDMF_COMMON.DYNAMICTABLE", ONLY PUT UNITS
      %IN types.hdmf_common.VectorData
     if contains(subj_figs,' 4c')
+        table = readtable(strcat(summary_data_path,'\IndividualFigures\Fig4\C\PiafvsK_4C.csv'));
     
-        %REMOVE HARD-CODING; USE summary_data_path
-        % load(strcat(summary_data_path,'\AllSegments\1_30_23_Results\CombinedResults\9_4_23\pvcomb_vesselfv_tapha_01_750um_8869ves.mat'),'pvcomb')
-        load("\\dk-server.dk.ucsd.edu\jaduckwo\DataAnalysis\VesCorrPhase\AllSegments\1_30_23_Results\CombinedResults\9_4_23\pvcomb_vesselfv_tapha_01_750um_8869ves.mat");
-    
-        %Get all magnitude k, freq
-        kvec = abs(pvcomb(:,1));
-        fvec = pvcomb(:,3);
+        %Get all magnitude k, freq, and R2 values
+        kvec = table.kvec;
+        fvec = table.fvec;
     
         %Create dynamic table
         col1 = types.hdmf_common.VectorData( ...
@@ -31,5 +29,6 @@ function Fig4C(subj_figs,summary_data_path,nwb)
         table_4C;
     
         nwb.analysis.set('PiaRestfvsK4C', table_4C);
+
     end
 end

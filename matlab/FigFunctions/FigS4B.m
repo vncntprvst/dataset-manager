@@ -1,6 +1,4 @@
 %FigS4B.m
-% Time Series
-
 %JD230523R1495trials_011524_ROI_010_00001
 % Z:\Jacob\Flux\DKLab\JDRLXJ\visualization\SuppFig
 % TBRLBB_post_processing_single_frame_ReaChR.m
@@ -8,8 +6,9 @@
 function FigS4B(subj_figs,summary_data_path,nwb)
     clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' S4b')
+        
+        table = readtable(strcat(summary_data_path,'\IndividualFigures\FigS4\B\Supp4B_FullTraces.csv'));
     
-        table = readtable("\\birdstore.dk.ucsd.edu\data\Jacob\Flux\DKLab\JDRLXJ\visualization\SuppFig\Supp4B_FullTraces.csv");
         time = table.time;
         flux_Hz = table.flux_trace;
         diameter_um = table.diam_trace;

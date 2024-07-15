@@ -2,15 +2,15 @@
 % Dynamic Table
 
 function Fig4B(subj_figs,summary_data_path,nwb)
+    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' 4b')
     
-        %REMOVE HARD-CODING; USE summary_data_path
-        % load(strcat(summary_data_path,'\AllSegments\1_30_23_Results\CombinedResults\9_4_23\pvcomb_vesselfv_tapha_01_750um_8869ves.mat'),'pvcomb');
-        load("\\dk-server.dk.ucsd.edu\jaduckwo\DataAnalysis\VesCorrPhase\AllSegments\1_30_23_Results\CombinedResults\9_4_23\pvcomb_vesselfv_tapha_01_750um_8869ves.mat");
-    
+        table = readtable(strcat(summary_data_path,'\IndividualFigures\Fig4\B\PiaR2vsK_4B.csv'));
+        
         %Get all magnitude k, freq, and R2 values
-        kvec = abs(pvcomb(:,1));
-        r2vec = pvcomb(:,2).^2;
+        kvec = table.kvec;
+        r2vec = table.r2vec;
+
     
         %Create dynamic table
         col1 = types.hdmf_common.VectorData( ...
