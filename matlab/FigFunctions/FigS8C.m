@@ -1,15 +1,12 @@
 %FigS8C.m
-% Dynamic Table
 
 function FigS8C(subj_figs,summary_data_path,nwb)
-    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
+clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' S8c')
-    
+        
         %First plot
-        %avoid hard-coding:
-        %load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves155.mat'));
-        load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves155.mat");
-    
+        load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves155.mat'));
+            
         phase = plotstruct(1).fullphase;
         dist = plotstruct(1).fulldist;
         %Assign to dynamic table
@@ -29,10 +26,8 @@ function FigS8C(subj_figs,summary_data_path,nwb)
         nwb.analysis.set('VascularPhaseProgression3S8C', table_S8C_Pts);
         clearvars tmp phase dist
     
-        %avoid hard-coding:
-        %load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves205.mat'));
-        load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves205.mat");
-
+        load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_11_53_Ves205.mat'));
+        
         phase = plotstruct(1).fullphase;
         dist = plotstruct(1).fulldist;
         %Assign to dynamic table
@@ -52,9 +47,8 @@ function FigS8C(subj_figs,summary_data_path,nwb)
         nwb.analysis.set('VascularPhaseProgression1S8C', table_S8C_Pts);
         clearvars tmp phase dist
     
-        %avoid hard-coding:
-        %load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves26.mat'));
-        load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves26.mat");
+        load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves26.mat'));
+        
         phase = plotstruct(1).fullphase;
         dist = plotstruct(1).fulldist;
         %Assign to dynamic table
@@ -74,9 +68,7 @@ function FigS8C(subj_figs,summary_data_path,nwb)
         nwb.analysis.set('VascularPhaseProgression2S8C', table_S8C_Pts);
         clearvars tmp phase dist
     
-        %avoid hard-coding:
-        %load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves81.mat'))
-        load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves81.mat");
+        load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\Supp8\ExamplePhaseProg_M4_20Mar_16_41_56_Ves81.mat'))
         
         phase = plotstruct(1).fullphase;
         dist = plotstruct(1).fulldist;

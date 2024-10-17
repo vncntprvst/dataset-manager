@@ -19,6 +19,7 @@ primary_experiments_table = readtable('\\birdstore.dk.ucsd.edu\data\Jacob\nwb_pr
 output_path = "C:\tmp\output\"; %NWB file written to this location
 summary_data_path = "Z:\drinehart\VesCorrPhase\"; %Duane test
 % summary_data_path = "Y:\DataAnalysis\VesCorrPhase"; %Jacob test
+pyenv(Version="C:\Program Files\Python311\python.exe"); %location of python executable
 %#################################################################
 
 %PRE-PROCESSING / PREREQUISITES
@@ -146,7 +147,7 @@ function GenDynamicTables(subj_figs, summary_data_path, nwb)
     Fig4F(subj_figs,summary_data_path,nwb);
     Fig5A(subj_figs,summary_data_path,nwb);
     Fig5B(subj_figs,summary_data_path,nwb);
-    % Fig5C(subj_figs,summary_data_path,nwb);
+    Fig5C(subj_figs,summary_data_path,nwb);
     Fig6B(subj_figs,summary_data_path,nwb);
     Fig6C(subj_figs,summary_data_path,nwb);
     Fig6D(subj_figs,summary_data_path,nwb);
@@ -159,14 +160,14 @@ function GenDynamicTables(subj_figs, summary_data_path, nwb)
     FigS2E(subj_figs,summary_data_path,nwb);
     FigS2F(subj_figs,summary_data_path,nwb);
     FigS2G(subj_figs,summary_data_path,nwb);
-    % FigS2H(subj_figs,summary_data_path,nwb);
+    FigS2H(subj_figs,summary_data_path,nwb);
     FigS3A(subj_figs,summary_data_path,nwb);
     FigS3B(subj_figs,summary_data_path,nwb);
     FigS3C(subj_figs,summary_data_path,nwb);
     FigS3D(subj_figs,summary_data_path,nwb);
     FigS3E(subj_figs,summary_data_path,nwb);
     FigS3F(subj_figs,summary_data_path,nwb);
-    % FigS4C(subj_figs,summary_data_path,nwb);
+    FigS4C(subj_figs,summary_data_path,nwb);
     FigS4D(subj_figs,summary_data_path,nwb);
     FigS5(subj_figs,summary_data_path,nwb);
     FigS6A(subj_figs,summary_data_path,nwb);
@@ -175,7 +176,7 @@ function GenDynamicTables(subj_figs, summary_data_path, nwb)
     FigS7A(subj_figs,summary_data_path,nwb);
     FigS7B(subj_figs,summary_data_path,nwb);
     FigS7C(subj_figs,summary_data_path,nwb);
-    % FigS8A(subj_figs,summary_data_path,nwb);
-    % FigS8B(subj_figs,summary_data_path,nwb);
-    % FigS8C(subj_figs,summary_data_path,nwb);
+    FigS8A(subj_figs,summary_data_path,nwb);
+    FigS8B(subj_figs,summary_data_path,nwb);
+    FigS8C(subj_figs,summary_data_path,nwb);
 end

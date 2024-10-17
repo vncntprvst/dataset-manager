@@ -6,8 +6,7 @@ function FigS8B(subj_figs,summary_data_path,nwb)
     if contains(subj_figs,'S8b')
         
         load(strcat(summary_data_path,'\AllSegments\ShortDistAnalysis\alpha0_01\files_allspeeds.mat'));
-        % load("Y:\DataAnalysis\VesCorrPhase\AllSegments\ShortDistAnalysis\alpha0_01\files_allspeeds.mat");
-    
+            
         for i = 1:length(files)
             files(i).meanlength = mean(files(i).all_length);
             minlen(i) = min(files(i).all_length);

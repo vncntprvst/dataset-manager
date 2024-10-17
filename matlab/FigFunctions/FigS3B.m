@@ -2,6 +2,7 @@
 % Dynamic Table
 
 function FigS3B(subj_figs,summary_data_path,nwb)
+    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' S3b')
         
         traces_tbl = readtable(strcat(summary_data_path,'\IndividualFigures\FigS3\B\FluxModExample_Traces_S3B.csv'));

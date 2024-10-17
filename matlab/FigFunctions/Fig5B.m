@@ -2,6 +2,7 @@
 % Dynamic Table
 
 function Fig5B(subj_figs,summary_data_path,nwb)
+    clearvars -except subj_session_id summary_data_path subj_figs primary_experiments_table subj nwb output_path
     if contains(subj_figs,' 5b')
     
         KM1 = load(strcat(summary_data_path, "\Rui_2P\Pipeline\8_4_StimAnalysis\20221212PA7_Corr_KF_struct_stim.mat"));
