@@ -1,5 +1,5 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 19-MAY-2023
+# LAST EDIT: 28-JAN-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
@@ -44,14 +44,10 @@ def displayMenu():
 def collectArguments():
     argParser = argparse.ArgumentParser()
     argParser.add_argument("-i", "--input_file", help="Input file (.xlsx) containing experimental parameters/data locations")
-    argParser.add_argument("-o", "--output_path",
-                           help="Output folder/path where converted nwb files will be stored")
-    argParser.add_argument("-exp", "--experiment_modality",
-                           help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=fMRI")
-    argParser.add_argument("-researcher", "--researcher_experimenter",
-                           help="Name(s) of researcher/experimenter")
-    argParser.add_argument("-institution", "--institution",
-                           help="Name of institution")
+    argParser.add_argument("-o", "--output_path", help="Output folder/path where converted nwb files will be stored")
+    argParser.add_argument("-exp", "--experiment_modality", help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=fMRI")
+    argParser.add_argument("-researcher", "--researcher_experimenter", help="Name(s) of researcher/experimenter")
+    argParser.add_argument("-institution", "--institution", help="Name of institution")
     args = argParser.parse_args()
     return args
 
@@ -213,33 +209,29 @@ def load_data(input_file, experiment_modality):
 def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
     '''Used for meta-data '''
 
-    try:
-        if math.isnan(age):
-            subject_age = ''
-    except:
-        if re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
-            subject_age = age
-        else:
-            if isinstance(age, str) != True:  # POSSIBLE int, FORMAT FOR ISO 8601
-                subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
-            else:
-                subject_age = "P0D"  # generic default
-            
-    dob = date_of_birth.to_pydatetime() #convert pandas timestamp to python datetime format
-    if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
-        date_of_birth = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
-    else:
-        date_of_birth = None
+    subject_age = 'P0D'  # DEFAULT VALUE
+    if isinstance(age, int) == True:
+        subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
+    elif isinstance(age, str) == True and re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
+        subject_age = age
+        
+    if date_of_birth is not None:
+        dob = date_of_birth.to_pydatetime()  #convert pandas timestamp to python datetime format
 
-    subject = pynwb.file.Subject(age=subject_age,
-                             description=subject_description,
-                             genotype=str(genotype),
-                             sex=sex,
-                             species=species,
-                             subject_id=subject_id,
-                             weight=str(subject_weight),
-                             date_of_birth=date_of_birth,
-                             strain=subject_strain
+        if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
+            date_of_birth = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
+        else:
+            date_of_birth = None
+    
+    subject = pynwb.file.Subject(age=subject_age, 
+                                 description=subject_description,
+                                 genotype=str(genotype),
+                                 sex=sex,
+                                 species=species,
+                                 subject_id=subject_id,
+                                 weight=str(subject_weight),
+                                 date_of_birth=date_of_birth,
+                                 strain=subject_strain
                             )
     return subject
 

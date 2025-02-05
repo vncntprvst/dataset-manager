@@ -1,2 +1,5 @@
 /.idea
 /.idea/inspectionProfiles
+# Ignore all __pycache__ directories
+__pycache__/
+/data-prep/.env
