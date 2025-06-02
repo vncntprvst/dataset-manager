@@ -1,5 +1,5 @@
 # CREATED: 27-APR-2023
-# LAST EDIT: 27-MAY-2023
+# LAST EDIT: 30-MAY-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''ADMIN HELPER FUNCTIONS FOR DATA PROCESSING'''
@@ -16,8 +16,10 @@ def IsWin11():
     else:return False
 
 
-def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth = None, subject_strain: str = None):
-    '''Used for meta-data '''
+def get_subject(age: int, subject_description: str, genotype: str, sex: str, species: str, subject_id, subject_weight, date_of_birth = None, subject_strain: str = None):
+    '''Used for meta-data 
+    Creates a pynwb.file.Subject object with the provided parameters.
+    '''
 
     subject_age = 'P0D'  # DEFAULT VALUE
     if isinstance(age, int) == True:
@@ -26,6 +28,7 @@ def get_subject(age, subject_description, genotype, sex, species, subject_id, su
         subject_age = age
         
     if date_of_birth is not None:
+        print(f"date_of_birth: {date_of_birth} ({type(date_of_birth)})")
         if isinstance(date_of_birth, pd.Timestamp):
             dob = date_of_birth.to_pydatetime()
         elif isinstance(date_of_birth, str):
