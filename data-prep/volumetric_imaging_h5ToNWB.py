@@ -1,6 +1,6 @@
 #################################################################
 # CONTACT DUANE RINEHART (drinehart@ucsd.edu) WITH ANY QUESTIONS
-# LAST EDIT: 4-JUN-2025
+# LAST EDIT: 5-JUN-2025
 #################################################################
 
 import os, sys
@@ -15,7 +15,7 @@ import uuid
 import h5py
 import numpy as np
 
-from pynwb.image import GrayscaleImage
+from pynwb.image import ImageSeries
 
 from pynwb import NWBFile, NWBHDF5IO, H5DataIO
 from pynwb.ophys import (
@@ -35,10 +35,8 @@ import utils
 
 #################################################################
 # APP CONSTANTS (DEFAULT)
-# input_path = Path('/', 'net', 'birdstore')
-# output_path = Path('/', 'data', 'nwb_tmp')
-input_path = Path('/', 'mnt', 'd', 'temp')
-output_path = Path('/', 'mnt', 'd', 'temp', 'nwb_tmp')
+input_path = Path('/', 'net', 'birdstore')
+output_path = Path('/', 'data', 'nwb_tmp')
 experiment_modality = 3 #2P (FOR COMPATIBILITY)
 experiment_modality_text = 'Volumetric Imaging (2P)'
 experiment_description = None #string or null
@@ -252,24 +250,16 @@ def main():
             data_io = H5DataIO(chunk_iter, compression='gzip')
 
         ##################################################################################
-        #ADD VOLUMETRIC IMAGING ACQUISITION META-DATA
+        # ADD DEVICE INFORMATION TO IMAGING PLANE OBJECT
         ##################################################################################
-        grayscale_image = GrayscaleImage(
-            name='my_grayscale_image',
-            data=data_io,
-            description='Grayscale image from .h5'
+        device = nwbfile.create_device(
+            name=str(row.device_name),
+            description=str(row.device_description),
+            manufacturer=str(row.device_manufacturer),
+            model_number="",
+            model_name="",
+            serial_number="",
         )
-
-        nwbfile.add_acquisition(grayscale_image)
-
-        # device = nwbfile.create_device(
-        #     name=str(row.device_name),
-        #     description=str(row.device_description),
-        #     manufacturer=str(row.device_manufacturer),
-        #     model_number="",
-        #     model_name="",
-        #     serial_number="",
-        # )
         # optical_channel_1 = OpticalChannel(
         #                     name="CH1",
         #                     description="Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG",
@@ -283,27 +273,27 @@ def main():
         # imaging_plane = nwbfile.create_imaging_plane(
         #     name="ImagingPlane",
         #     optical_channel=[optical_channel_1, optical_channel_2],
-        #     # imaging_rate=30.0,
         #     description="",
         #     device=device,
         #     excitation_lambda=950.0,
         #     indicator="CH1: GFP; CH2: Fluorescein",
         #     location="whole craniocerebral system",
-        #     # grid_spacing=[0.01, 0.01],
-        #     # grid_spacing_unit="meters",
-        #     # origin_coords=[1.0, 2.0, 3.0],
-        #     # origin_coords_unit="meters",
         # )
 
-        # two_p_series = TwoPhotonSeries(
-        #         name="TwoPhotonSeries",
-        #         description="Stitched 2p data; check data for actual rate",
-        #         data=data_io,
-        #         imaging_plane=imaging_plane,
-        #         rate=1.0,
-        #         unit="a.u.",
-        #     )
-        # nwbfile.add_acquisition(two_p_series)
+        ##################################################################################
+        #ADD VOLUMETRIC IMAGING ACQUISITION META-DATA
+        #USED GENERIC ImageSeries BECAUSE IT CAN HANDLE 3-DIMENSIONAL DATA
+        ##################################################################################
+        image_series = ImageSeries(
+            name="ImageSeries",
+            description="Stitched 2p data; check data for actual rate; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
+            data=data_io,
+            device=device,
+            unit="a.u.", #arbitrary units
+            rate=1.0
+        )
+
+        nwbfile.add_acquisition(image_series)
         
         if debug:
             print(f'DEBUG: Output file path: {output_file}')
