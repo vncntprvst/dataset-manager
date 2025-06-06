@@ -244,6 +244,18 @@ def main():
         output_file = Path(args.output_path, Path(data_src).stem + '.nwb')
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
+        pattern = r'CH_1'
+        if bool(re.search(pattern, str(output_file))):
+            #channel_1
+            print('channel 1 detected')
+            series_desc = "Stitched volumetric 2P data; check data for actual rate; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'"
+        else:
+            #channel_2
+            print('channel 2 detected')
+            series_desc = "Stitched volumetric 2P data; check data for actual rate; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
+        
+        print(f"DEBUG: Series description: {series_desc}")
+
         with h5py.File(data_src, 'r') as fh:
             dataset = fh['data']
             chunk_iter = DataChunkIterator(dataset, buffer_size=2000)
@@ -260,25 +272,6 @@ def main():
             model_name="",
             serial_number="",
         )
-        # optical_channel_1 = OpticalChannel(
-        #                     name="CH1",
-        #                     description="Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG",
-        #                     emission_lambda=475.0)
-
-        # optical_channel_2 = OpticalChannel(
-        #                     name="CH2",
-        #                     description="Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein",
-        #                     emission_lambda=525.0)
-
-        # imaging_plane = nwbfile.create_imaging_plane(
-        #     name="ImagingPlane",
-        #     optical_channel=[optical_channel_1, optical_channel_2],
-        #     description="",
-        #     device=device,
-        #     excitation_lambda=950.0,
-        #     indicator="CH1: GFP; CH2: Fluorescein",
-        #     location="whole craniocerebral system",
-        # )
 
         ##################################################################################
         #ADD VOLUMETRIC IMAGING ACQUISITION META-DATA
@@ -286,7 +279,7 @@ def main():
         ##################################################################################
         image_series = ImageSeries(
             name="ImageSeries",
-            description="Stitched 2p data; check data for actual rate; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
+            description=series_desc,
             data=data_io,
             device=device,
             unit="a.u.", #arbitrary units
