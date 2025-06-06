@@ -1,6 +1,6 @@
 #################################################################
 # CONTACT DUANE RINEHART (drinehart@ucsd.edu) WITH ANY QUESTIONS
-# LAST EDIT: 5-JUN-2025
+# LAST EDIT: 6-JUN-2025
 #################################################################
 
 import os, sys
@@ -279,7 +279,7 @@ def main():
         ##################################################################################
         image_series = ImageSeries(
             name="ImageSeries",
-            description=series_desc,
+            description=str(series_desc),
             data=data_io,
             device=device,
             unit="a.u.", #arbitrary units
