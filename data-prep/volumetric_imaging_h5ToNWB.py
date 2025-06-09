@@ -1,6 +1,6 @@
 #################################################################
 # CONTACT DUANE RINEHART (drinehart@ucsd.edu) WITH ANY QUESTIONS
-# LAST EDIT: 6-JUN-2025
+# LAST EDIT: 9-JUN-2025
 #################################################################
 
 import os, sys
@@ -216,7 +216,7 @@ def main():
                                     subject_strain)
         ##################################################################################
 
-        keywords = ['Researcher(s): ' + str(row.experimenters)]
+        keywords = ['Vasculature, Skull, Optical Sectioning, Two-Photon Imaging']
         institution = row.institution
         performance_lab = row.performance_lab
         session_description = row.session_description
@@ -248,11 +248,13 @@ def main():
         if bool(re.search(pattern, str(output_file))):
             #channel_1
             print('channel 1 detected')
-            series_desc = "Stitched volumetric 2P data; check data for actual rate; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'"
+            series_desc = "Stitched volumetric 2P data; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'"
+            output_file_name = 'WBIM_stitched_SHG' + '.nwb'
         else:
             #channel_2
             print('channel 2 detected')
-            series_desc = "Stitched volumetric 2P data; check data for actual rate; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
+            series_desc = "Stitched volumetric 2P data; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
+            output_file_name = 'WBIM_stitched_Vessel' + '.nwb'
         
         print(f"DEBUG: Series description: {series_desc}")
 
@@ -289,11 +291,11 @@ def main():
         nwbfile.add_acquisition(image_series)
         
         if debug:
-            print(f'DEBUG: Output file path: {output_file}')
-        with NWBHDF5IO(output_file, 'w') as io:
+            print(f'DEBUG: Output file path: {output_file_name}')
+        with NWBHDF5IO(output_file_name, 'w') as io:
             io.write(nwbfile)
 
-        print(f"Conversion completed. NWB file saved to {output_file}")
+        print(f"Conversion completed. NWB file saved to {output_file_name}")
         
 
 if __name__ == "__main__":
