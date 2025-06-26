@@ -1,5 +1,5 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 28-JAN-2025
+# LAST EDIT: 6-JUN-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
@@ -8,6 +8,7 @@ import os, sys, math, pynwb, re, glob
 from pathlib import Path, PurePath
 import argparse
 import pandas as pd
+import uuid
 from datetime import datetime
 from dateutil.tz import tzlocal
 from scipy.io import loadmat
@@ -17,8 +18,9 @@ from pynwb.image import ImageSeries
 
 parent = Path(__file__).parents[1] #2 levels up
 sys.path.append(parent)
+print("*"*40)
 print(f'USING PARENT PATH REFERENCES FOR IMPORTS: {parent}')
-
+print("*"*40)
 sys.path.insert(1, 'lib')
 sys.path.insert(1, 'converters')
 
@@ -29,16 +31,19 @@ from ConvertIntanToNWB import convert_to_nwb
 #################################################################
 # APP CONSTANTS (DEFAULT)
 output_path = Path(os.getcwd(), 'output')
-experiment_modality = 1 #ephys
 experiment_description = None #string or null
-researcher_experimenter = ""
-institution = ""
-# debug = True
+scratch_path = Path('/', 'data', 'nwb_tmp')
+debug = True
 #################################################################
 
+
 def displayMenu():
-    print('DATA SHARING COMMAND LINE INTERFACE\n')
-    print('SEE REPOSITORY (https://github.com/ActiveBrainAtlas2/nwb) OR EVALUATE CODE FOR ARGUMENTS\n')
+    print("*"*40)
+    print('-NIH DATA INGESTION COMMAND LINE INTERFACE-')
+    print("*"*40)
+    print('SEE REPOSITORY (https://github.com/USArhythms/ingestion_scripts) OR EVALUATE CODE FOR USAGE DETAILS\n')
+    print('CONTACT DUANE RINEHART (drinehart@ucsd.edu) WITH ANY QUESTIONS\n')
+    print("*"*40)
 
 
 def collectArguments():
@@ -48,6 +53,7 @@ def collectArguments():
     argParser.add_argument("-exp", "--experiment_modality", help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=fMRI")
     argParser.add_argument("-researcher", "--researcher_experimenter", help="Name(s) of researcher/experimenter")
     argParser.add_argument("-institution", "--institution", help="Name of institution")
+    argParser.add_argument("-debug", "--debug", help="Display debug information", default=False)
     args = argParser.parse_args()
     return args
 
@@ -183,25 +189,49 @@ def load_data(input_file, experiment_modality):
         ]
     elif experiment_modality == "5":#mri
         exp_modality_specific_fields = []
+    else:
+        #NOT DEFINED [YET]
+        exp_modality_specific_fields = []
         
 
 
     #APPEND EXPERIMENT MODALITY SPECFIC FIELDS TO COMMON LIST
     lstNWBFields = commonFields + exp_modality_specific_fields
+    
     matched_fields = []
     try:
-        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto", usecols=lstNWBFields) #just extract columns/fields I need
+        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto", usecols=lstNWBFields,
+                                            dtype={'stimulus_notes_file': str, 'notes_file': str}) #just extract columns/fields I need
         matched_fields = lstNWBFields
     except ValueError:
-        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto")  # read fine 'as is'
-
+        # Read all columns, then force string conversion for critical fields
+        lstExtractionFields = pd.read_excel(input_file, sheet_name="auto")
         fields_in_file = lstExtractionFields.columns.tolist()
         matched_fields = list(set(fields_in_file).intersection(lstNWBFields))
+        
+        # Ensure critical columns are strings even if not in lstNWBFields
+        for col in ['stimulus_notes_file', 'notes_file']:
+            if col in lstExtractionFields.columns:
+                lstExtractionFields[col] = lstExtractionFields[col].astype(str)
 
         print(f"IMPORT WARNING [SOME FIELDS NOT MATCHED] - NWB FIELD COUNT {len(lstNWBFields)}; IMPORT SHEET FIELD COUNT {len(fields_in_file)}")
     finally:
         print(f"SCRIPT WILL CONTINUE WITH THE FOLLOWING FIELDS: {matched_fields}")
         print("*" * 40)
+
+    # Filter rows where 'include_nwb' == 'y'
+    if 'include_nwb' in lstExtractionFields.columns:
+        lstExtractionFields = lstExtractionFields[
+            lstExtractionFields['include_nwb'].astype(str).str.lower() == 'y'
+        ]
+
+    mask = (
+        lstExtractionFields['stimulus_notes_file'].notna() &
+        lstExtractionFields['stimulus_notes_file'].str.strip().ne('') &
+        lstExtractionFields['notes_file'].notna() &
+        lstExtractionFields['notes_file'].str.strip().ne('')
+    )
+    lstExtractionFields = lstExtractionFields[mask]
 
     return lstExtractionFields
 
@@ -253,188 +283,270 @@ def get_electrode_mapping_data(src_folder_directory, electrode_recordings_file, 
 
 
 def main():
-    displayMenu()
+    #################################################################
+    # APP CONSTANTS (DEFAULT)
+    researcher_experimenter = ""
+    institution = ""
+    experiment_modality = "1" #ephys
+    #################################################################
+    
+
     if len(sys.argv) > 1:
         args = collectArguments()
-        input_path = displayParam(args)
+        print("USING CLI ARGUMENTS")
+        print(f'ARGUMENTS COLLECTED: {args}')
+        experiment_modality = args.experiment_modality
+    else:
+        print("MISSING ARGUMENTS; USING DEFAULTS")
+        print(f'\'python {os.path.basename(__file__)} -h\' FOR HELP\n')
+        args.output_path = output_path
+        experiment_modality = experiment_modality
+        args.researcher_experimenter = researcher_experimenter
+        args.institution = institution
+        args.debug = debug
+    
+    lstRecords = load_data(args.input_file, experiment_modality)
+    
+    ##################################################################################
+    #RENAME EXCEL/DATAFRAME FIELD COLUMN NAMES FOR EASIER NWB CONVERSION
+    lstRecords.rename(columns={'session_start_time(YYYY-MM-DD HH:MM)': 'session_start_time'}, inplace=True)
+    lstRecords.rename(columns={'date_of_birth(YYYY-MM-DD)': 'date_of_birth'}, inplace=True)
+    lstRecords.rename(columns={'age(days)': 'age_days'}, inplace=True)
+    ##################################################################################
+    
+    for cnt, row in enumerate(lstRecords.itertuples(index=False)):
+        if pd.isna(row.session_id) or str(row.session_id) == '':
+            continue
+        print(f"PROCESSING DATASET #{cnt + 1}")
+        unique_identifier = str(uuid.uuid4())            
+        session_id = str(row.session_id) + "_" + unique_identifier
 
-        lstRecords = load_data(args.input_file, experiment_modality).to_dict('records')  # creates list of dictionaries
-
-        for cnt, dataset in enumerate(lstRecords):
-            print(f"PROCESSING DATASET #{cnt + 1}")
-            print(f"\tsession_id: {dataset['session_id']}")
-            age = dataset['age']
-            subject_description = dataset['subject_description']
-            genotype = dataset['genotype']
-            if dataset['sex'] == 'Male' or dataset['sex'] == 'M':
-                sex = 'M'
-            elif dataset['sex'] == 'Female' or dataset['sex'] == 'F' :
-                sex = 'F'
+        session_start_time = row.session_start_time
+        
+        #IF NO TIMEZONE INFO, USE LOCAL TIMEZONE
+        if isinstance(session_start_time, pd.Timestamp):
+            if pd.isna(session_start_time):
+                session_start_time = datetime.now(tzlocal())
+            elif session_start_time.tzinfo is None:
+                session_start_time = session_start_time.tz_localize(tzlocal())
+        elif isinstance(session_start_time, str):
+            if not session_start_time:
+                session_start_time = datetime.now(tzlocal())
             else:
-                sex = 'U'  # unknown
-            species = dataset['species']
-            subject_id = dataset['subject_id']
-            subject_weight = dataset['subject_weight']
-            date_of_birth = dataset['date_of_birth(YYYY-MM-DD)']
-            subject_strain = dataset['subject_strain']
-            global researcher_experimenter
-            if researcher_experimenter == '':#from terminal line (takes priority)
-                researcher_experimenter = dataset['experimenters']
-            global institution
-            if institution == '':#from terminal line (takes priority)
-                institution = dataset['institution']
-            ##################################################################################
-            # CREATE EXPERIMENTAL SUBJECT OBJECT
-            subject = get_subject(age,
-                                  subject_description,
-                                  genotype,
-                                  sex,
-                                  species,
-                                  subject_id,
-                                  subject_weight,
-                                  date_of_birth,
-                                  subject_strain)
-            ##################################################################################
+                session_start_time = pd.to_datetime(session_start_time)
+            if session_start_time.tzinfo is None:
+                session_start_time = session_start_time.tz_localize(tzlocal())
 
-            ##################################################################################
-            output_filename = None
-            session_id = dataset['session_id']
-            filename = Path(session_id)  # wrong extension; replace with 'nwb'
-            output_filename = filename.with_suffix('.nwb')
-            dest_path = Path(output_path, output_filename)
+        ##################################################################################
+        # CREATE EXPERIMENTAL SUBJECT OBJECT
+        age = row.age_days
+        subject_description = row.subject_description
+        genotype = row.genotype
+        sex = row.sex
+        if sex == 'Male' or sex == 'M':
+            sex = 'M'
+        elif sex == 'Female' or sex == 'F':
+            sex = 'F'
+        else:
+            sex = 'U'  # unknown
+        subject_id = row.subject_id
+        subject_weight = row.subject_weight
+        date_of_birth = row.date_of_birth
+        subject_strain = row.subject_strain
+        species = row.species
 
-            Path(output_path).mkdir(parents=True, exist_ok=True)
-            base_input_path = os.path.dirname(input_path)
-            last_folder_in_path = os.path.basename(os.path.normpath(base_input_path))
+        subject = utils.get_subject(age,
+                                    subject_description,
+                                    genotype,
+                                    sex,
+                                    species,
+                                    subject_id,
+                                    subject_weight,
+                                    date_of_birth,
+                                    subject_strain)
+        ##################################################################################
 
-            if last_folder_in_path == dataset['src_folder_directory']:
-                #ASSUMED DUPLICATE FOLDERS AT END OF PATH
-                input_filename = Path(base_input_path, filename)
-            else:
-                input_filename = Path(base_input_path, dataset['src_folder_directory'], filename)
+        if researcher_experimenter == '': #from terminal line (takes priority)
+            researcher_experimenter = row.experimenters
+        
+        if institution == '':#from terminal line (takes priority)
+            institution = row.institution
 
-            print(f'\tINPUT FILE: {input_filename}')
-            print(f'\tOUTPUT FILE: {dest_path}')
             keywords = ['Researchers: ' + str(researcher_experimenter)]
 
-            ##################################################################################
-            # PROCESS META-DATA, GENERAL
-            session_description = dataset['session_description']
-            surgery = None  # DEFAULT VALUE FOR SURGERY
-            pharmacology = None  # DEFAULT VALUE FOR PHARMACOLOGY
-            manual_start_time = None # DEFAULT VALUE FOR MANUAL START TIME
-            exp_identifier = dataset['identifier']
-            session_start_time = datetime(2023, 3, 2, tzinfo=tzlocal())#use current day
+        ##################################################################################
+        # CONVERT .MAT FILES TO .h5
+        ##################################################################################
+        output_filename = None
+        output_filename = str(session_id).replace('/', '_').replace('\\', '_') + '.nwb' # REPLACE SLASHES IN FILENAME WITH UNDERSCORE
+        
+        print(f'\tNWB OUTPUT FILENAME: {output_filename}')
+        Path(output_path).mkdir(parents=True, exist_ok=True)
 
-            # CONCATENATE STIMULUS NOTES (DEPENDS ON EXPERIMENT MODALITY)
-            stimulus_notes = 'NA'
-            pharmacology = 'NA'
-            notes = 'NA'
-            if experiment_modality == "4":
-                stimulus_notes_file = dataset['stimulus_notes_file']
+        input_path = row.recordings_folder_directory
+        if row.analysis_file:
+            #INDIVIDUAL FILE INGESTION (EXPLICITY DEFINED)
+            input_files = [Path(input_path, str(row.analysis_file))]
+        else:
+            #SCAN ENTIRE DIRECTORY FOR .mat FILES
+            input_files = list(Path(input_path).glob('*.mat')) # JUST MATLAB FOR NOW
+
+        #EVEN ON SCRATCH, CREATE FOLDER STRUCTURE BASED ON INPUT PATH
+        Path(scratch_path, str(Path(input_path).parent.name)).mkdir(parents=True, exist_ok=True)
+        revised_scratch_path = Path(scratch_path, str(Path(input_path).parent.name))
+        Path(args.output_path, str(Path(input_path).parent.name)).mkdir(parents=True, exist_ok=True)
+        dest_path = Path(args.output_path, str(Path(input_path).parent.name), output_filename)
+        
+        if len(input_files) > 0:
+            for file in input_files:
+                filename = file.name
+                print(f'\tCONVERTING FILE: {filename}')
+                input_filename = Path(input_path, filename)
+                
+                data_io = utils.convert(input_filename, revised_scratch_path)
+                     
+        else:
+            print(f'\tNO INPUT FILES FOUND IN: {input_path}')
+            continue
+        
+
+        # base_input_path = os.path.dirname(input_path)
+        
+
+        # print(f'\tINPUT PATH: {input_path}, BASE INPUT PATH: {base_input_path}')
+        # last_folder_in_path = os.path.basename(os.path.normpath(base_input_path))
+        
+        # if last_folder_in_path == dataset['src_folder_directory']:
+        #     #ASSUMED DUPLICATE FOLDERS AT END OF PATH
+        #     input_filename = Path(base_input_path, filename)
+        # else:
+        #     input_filename = Path(base_input_path, dataset['src_folder_directory'], filename)
+
+        # print(f'\tINPUT FILE: {input_filename}')
+        # print(f'\tOUTPUT FILE: {dest_path}')
+        
+        ##################################################################################
+        # PROCESS META-DATA, GENERAL
+        session_description = row.session_description
+        surgery = None  # DEFAULT VALUE FOR SURGERY
+        pharmacology = None  # DEFAULT VALUE FOR PHARMACOLOGY
+        manual_start_time = None # DEFAULT VALUE FOR MANUAL START TIME
+        exp_identifier = 'NA'
+        # CONCATENATE STIMULUS NOTES (DEPENDS ON EXPERIMENT MODALITY)
+        stimulus_notes = 'NA'
+        pharmacology = 'NA'
+        notes = 'NA'
+        if experiment_modality == "4":
+            stimulus_notes_file = row.stimulus_notes_file
+            if pd.notna(stimulus_notes_file) and str(stimulus_notes_file).strip().lower() != 'nan' and len(str(stimulus_notes_file).strip()) > 0:
                 path_stub = input_filename.parts[:-1]
-                data_filename = Path(*path_stub, stimulus_notes_file)
+                data_filename = Path(*path_stub, str(stimulus_notes_file))
                 stimulus_notes = behavior.add_str_data(data_filename, 'stimulus_notes')
                 print(f'\tINCLUDING DATA FROM FILE: {stimulus_notes_file}')
 
-                notes_file = dataset['notes_file']
+            notes_file = row.notes_file
+            if pd.notna(notes_file) and str(notes_file).strip().lower() != 'nan' and len(str(notes_file).strip()) > 0:
+                notes_file = row.notes_file
                 path_stub = input_filename.parts[:-1]
                 data_filename = Path(*path_stub, notes_file)
                 notes = behavior.add_str_data(data_filename, 'notes')
                 print(f'\tINCLUDING DATA FROM FILE: {notes_file}')
+        else:
+            if row.stimulus_notes_include == 1:  # 1 (include) or 0 (do not include)
+                stimulus_notes = "Stimulus paradigm: " + str(row.stimulus_notes_paradigm) + "; "
+                if row.stimulus_notes_direct_electrical_stimulation == 1:
+                    stimulus_notes += "Direct electrical stimulation paradigm: " + str(
+                        row.stimulus_notes_direct_electrical_stimulation_paradigm) + "; "
+
+            if row.pharmacology_notes_anesthetized_during_recording == 1: # 1 (include) or 0 (do not include)
+                pharmacology = row.pharmacology
+
+        #TODO - ADD surgery (concatenated) if exists in dataframe
+
+        ##################################################################################
+        #CREATE NWB FILE (BASIC META-DATA)
+        nwbfile = pynwb.NWBFile(session_description = session_description,
+                                identifier = exp_identifier,
+                                session_start_time = session_start_time,
+                                experiment_description = experiment_description,
+                                keywords = keywords,
+                                surgery=surgery,
+                                pharmacology=pharmacology,
+                                stimulus_notes=stimulus_notes,
+                                experimenter = researcher_experimenter,
+                                institution = institution,
+                                subject=subject,
+                                notes=notes
+                                )
+
+        ##################################################################################
+        # PROCESS META-DATA, ACCORDING TO EXPERIMENT MODALITY
+
+        if experiment_modality == "1":
+            ##################################################################################
+            # CREATE/CONVERT ELECTRODES TABLE(S) OBJECT
+            electrode_recordings_file = row.electrode_recordings
+            electrode_mappings = get_electrode_mapping_data(input_filename,
+                                electrode_recordings_file,
+                                row.electrode_device_name,
+                                row.electrode_recordings_type,
+                                row.electrode_recordings_contact_material,
+                                row.electrode_recordings_substrate,
+                                row.electrode_recordings_system,
+                                row.electrode_recordings_location).tolist()[0]
+
+            #ref: https://stackoverflow.com/questions/51051136/extracting-content-between-curly-braces-in-python
+            grouped_electrode_mappings = re.findall(r'\{(.*?)\}', electrode_mappings)
+            electrode_mappings = [(counter, item) for counter, item in enumerate(grouped_electrode_mappings)]
+
+            print(f'mappings: {type(grouped_electrode_mappings), len(grouped_electrode_mappings), grouped_electrode_mappings}')
+
+            electrode_recordings_description = 'Type: ' + str(
+                row.electrode_recordings_type) + '; Contact material: ' + str(
+                row.electrode_recordings_contact_material) + '; Substrate: ' + str(
+                row.electrode_recordings_substrate)
+
+            electrode_headers = {'electrode_device_name': row.electrode_device_name,
+                                    'electrode_recordings_description': electrode_recordings_description,
+                                    'electrode_recordings_system': row.electrode_recordings_system,
+                                    'electrode_recordings_location': row.electrode_recordings_location,
+                                    'electrode_filtering': row.electrode_filtering}
+
+            ##################################################################################
+            if os.path.isfile(dest_path) != True:  # file conversion completed
+                print(f'\tCONVERTING INTAN (.rhd) FILE TO NWB: {dest_path}')
+                convert_to_nwb(intan_filename=str(input_filename),
+                                nwb_filename=str(dest_path),
+                                session_description=session_description,
+                                blocks_per_chunk=1000,
+                                use_compression=True,
+                                compression_level=4,
+                                lowpass_description='Unknown lowpass filtering process',
+                                highpass_description='Unknown lowpass filtering process',
+                                merge_files=False,
+                                subject=subject,
+                                surgery=surgery,
+                                stimulus_notes=stimulus_notes,
+                                pharmacology=pharmacology,
+                                manual_start_time=manual_start_time,
+                                exp_identifier=str(exp_identifier),
+                                electrode_mappings=electrode_mappings,
+                                experimenter=researcher_experimenter,
+                                institution=institution,
+                                electrode_headers=electrode_headers)
             else:
-                if dataset['stimulus_notes_include'] == 1:  # 1 (include) or 0 (do not include)
-                    stimulus_notes = "Stimulus paradigm: " + str(dataset['stimulus_notes_paradigm']) + "; "
-                    if dataset['stimulus_notes_direct_electrical_stimulation'] == 1:
-                        stimulus_notes += "Direct electrical stimulation paradigm: " + str(
-                            dataset['stimulus_notes_direct_electrical_stimulation_paradigm']) + "; "
+                print(f'\tINTAN (.rhd) FILE CONVERSION COMPLETE')
 
-                if dataset['pharmacology_notes_anesthetized_during_recording'] == 1: # 1 (include) or 0 (do not include)
-                    pharmacology = dataset['pharmacology']
+        elif experiment_modality == "4":
+            if row.institution == 'Boston University':
+                print("ECONOMO LAB DATA PROCESSING")
+                print(f'\tRESULT NWB FILE WILL BE SAVED TO: {dest_path}')
+                
+            else:
 
-            if dataset['session_start_time']:
-                session_start_time = dataset['session_start_time'].to_pydatetime().replace(tzinfo=tzlocal()) #replace non-existent (presumed) timezone with local timezone
-
-            #TODO - ADD surgery (concatenated) if exists in dataframe
-
-            ##################################################################################
-            #CREATE NWB FILE (BASIC META-DATA)
-            nwbfile = pynwb.NWBFile(session_description = dataset['session_description'],
-                                    identifier = str(exp_identifier),
-                                    session_start_time = session_start_time,
-                                    experiment_description = experiment_description,
-                                    keywords = keywords,
-                                    surgery=surgery,
-                                    pharmacology=pharmacology,
-                                    stimulus_notes=stimulus_notes,
-                                    experimenter = researcher_experimenter,
-                                    institution = institution,
-                                    subject=subject,
-                                    notes=notes
-                                    )
-
-            ##################################################################################
-            # PROCESS META-DATA, ACCORDING TO EXPERIMENT MODALITY
-
-            if experiment_modality == "1":
-                ##################################################################################
-                # CREATE/CONVERT ELECTRODES TABLE(S) OBJECT
-                electrode_recordings_file = dataset['electrode_recordings']
-                electrode_mappings = get_electrode_mapping_data(input_filename,
-                                    electrode_recordings_file,
-                                    dataset['electrode_device_name'],
-                                    dataset['electrode_recordings_type'],
-                                    dataset['electrode_recordings_contact_material'],
-                                    dataset['electrode_recordings_substrate'],
-                                    dataset['electrode_recordings_system'],
-                                    dataset['electrode_recordings_location']).tolist()[0]
-
-                #ref: https://stackoverflow.com/questions/51051136/extracting-content-between-curly-braces-in-python
-                grouped_electrode_mappings = re.findall(r'\{(.*?)\}', electrode_mappings)
-                electrode_mappings = [(counter, item) for counter, item in enumerate(grouped_electrode_mappings)]
-
-                print(f'mappings: {type(grouped_electrode_mappings), len(grouped_electrode_mappings), grouped_electrode_mappings}')
-
-                electrode_recordings_description = 'Type: ' + str(
-                    dataset['electrode_recordings_type']) + '; Contact material: ' + str(
-                    dataset['electrode_recordings_contact_material']) + '; Substrate: ' + str(
-                    dataset['electrode_recordings_substrate'])
-
-                electrode_headers = {'electrode_device_name': dataset['electrode_device_name'],
-                                     'electrode_recordings_description': electrode_recordings_description,
-                                     'electrode_recordings_system': dataset['electrode_recordings_system'],
-                                     'electrode_recordings_location': dataset['electrode_recordings_location'],
-                                     'electrode_filtering': dataset['electrode_filtering']}
-
-                ##################################################################################
-                if os.path.isfile(dest_path) != True:  # file conversion completed
-                    print(f'\tCONVERTING INTAN (.rhd) FILE TO NWB: {dest_path}')
-                    convert_to_nwb(intan_filename=str(input_filename),
-                                   nwb_filename=str(dest_path),
-                                   session_description=session_description,
-                                   blocks_per_chunk=1000,
-                                   use_compression=True,
-                                   compression_level=4,
-                                   lowpass_description='Unknown lowpass filtering process',
-                                   highpass_description='Unknown lowpass filtering process',
-                                   merge_files=False,
-                                   subject=subject,
-                                   surgery=surgery,
-                                   stimulus_notes=stimulus_notes,
-                                   pharmacology=pharmacology,
-                                   manual_start_time=manual_start_time,
-                                   exp_identifier=str(exp_identifier),
-                                   electrode_mappings=electrode_mappings,
-                                   experimenter=researcher_experimenter,
-                                   institution=institution,
-                                   electrode_headers=electrode_headers)
-                else:
-                    print(f'\tINTAN (.rhd) FILE CONVERSION COMPLETE')
-
-            elif experiment_modality == "4":
                 ##################################################################################
                 # CREATE IMAGE SERIES OBJECT TO STORE VIDEO DATA
-                video_sampling_rate = dataset['video_sampling_rate']
+                video_sampling_rate = row.video_sampling_rate
                 last_folder_in_path = os.path.basename(os.path.normpath(input_filename))
                 path_stub = input_filename.parts[:-1]
                 glob_pattern = last_folder_in_path + '_*.avi'
@@ -462,9 +574,9 @@ def main():
                 img_comments = behavior.extract_img_series_data(comments_file_path)
 
                 device = nwbfile.create_device(
-                    name=dataset['device_name'],
-                    description=dataset['device_description'],
-                    manufacturer=dataset['device_manufacturer']
+                    name=row.device_name,
+                    description=row.device_description,
+                    manufacturer=row.device_manufacturer
                 )
 
                 ##################################################################################
@@ -484,7 +596,7 @@ def main():
                 ##################################################################################
                 # ADD SENSOR DATA AS NDARRAY (TIME SERIES)
                 time_series_name = 'raw_sensor_data'
-                sensor_description = dataset['sensor_description']
+                sensor_description = row.sensor_description
 
                 video_sampling_rate_Hz = 100.0 #float
 
@@ -506,7 +618,7 @@ def main():
                 # ADD DATA [36DATA] AS NDARRAY (TIME SERIES)
                 ##################################################################################
                 time_series_name = 'data_36columns'
-                time_series_description = str(dataset['ch3_in_36data']) + '|' + str(dataset['ch4_in_36data']) + '|' + str(dataset['ch5_in_36data']) + '|' + str(dataset['ch6_in_36data'])
+                time_series_description = str(row.ch3_in_36data) + '|' + str(row.ch4_in_36data) + '|' + str(row.ch5_in_36data) + '|' + str(row.ch6_in_36data)
                 video_sampling_rate_Hz = 2000.0  # sampling rate in Hz
 
                 glob_pattern = session_id + '_*_36data.mat' # .mat
@@ -515,7 +627,7 @@ def main():
                     print(f'\tINCLUDING {time_series_name} DATA FROM FILE: {time_series_file_path}')
 
                 behavioral_time_series = behavior.add_timeseries_data(time_series_file_path, video_sampling_rate_Hz,
-                                                                       time_series_name, time_series_description)
+                                                                        time_series_name, time_series_description)
 
                 behavior_module = nwbfile.create_processing_module(
                     name=time_series_name, description=time_series_description
@@ -527,8 +639,8 @@ def main():
                 # ADD OTHER META-DATA [LCmat] AS NDARRAY (TIME SERIES)
                 ##################################################################################
                 time_series_name = 'raw_labchart_data'
-                time_series_description = dataset['LCmat_channel_description']
-                video_sampling_rate_Hz = float(dataset['LCmat_sampling_rate']) # sampling rate in Hz
+                time_series_description =row.LCmat_channel_description
+                video_sampling_rate_Hz = float(row.LCmat_sampling_rate) # sampling rate in Hz
 
                 glob_pattern = session_id + '_*_LCmat.mat'  # .mat
                 base_path_with_pattern = str(Path(*path_stub, glob_pattern))
@@ -536,7 +648,7 @@ def main():
                     print(f'\tINCLUDING {time_series_name} LOG DATA FROM FILE: {other_file_path}')
 
                 behavioral_time_series = behavior.add_timeseries_data(other_file_path, video_sampling_rate_Hz,
-                                                                      time_series_name, time_series_description)
+                                                                        time_series_name, time_series_description)
 
                 behavior_module = nwbfile.create_processing_module(
                     name=time_series_name, description=time_series_description
@@ -546,7 +658,7 @@ def main():
                 ##################################################################################
                 # ADD PROCESSING DATA REF AS TUPLE
                 ##################################################################################
-                processing_file = dataset['processing_file']
+                processing_file = row.processing_file
                 name = 'signal_percentiles'
                 description = 'Percentiles of the 36-data signals.'
 
@@ -565,7 +677,7 @@ def main():
                 ##################################################################################
                 # ADD ANALYSIS DATA REF AS TUPLE
                 ##################################################################################
-                analysis_file = dataset['analysis_file']
+                analysis_file = row.analysis_file
                 name = 'behavioral_booleans'
                 description = 'Annotated masks for pre-defined behaviors (usable, head-torso, both)'
 
@@ -580,12 +692,14 @@ def main():
 
                     print(f'\tINCLUDING {analysis_file} DATA FROM FILE: {data_filename}')
 
-                # WRITE NWB FILE TO STORAGE
-                with pynwb.NWBHDF5IO(dest_path, 'w') as io:
-                    io.write(nwbfile)
 
-            else:
-                print("not complete")
+            # WRITE NWB FILE TO STORAGE
+            print(f'\tWRITING NWB FILE TO STORAGE: {dest_path}')
+            with pynwb.NWBHDF5IO(dest_path, 'w') as io:
+                io.write(nwbfile)
+
+        else:
+            print("not complete")
 
 
         #
