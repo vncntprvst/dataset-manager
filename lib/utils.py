@@ -1,5 +1,5 @@
 # CREATED: 27-APR-2023
-# LAST EDIT: 30-MAY-2025
+# LAST EDIT: 25-JUN-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''ADMIN HELPER FUNCTIONS FOR DATA PROCESSING'''
@@ -44,11 +44,19 @@ def get_subject(age: int, subject_description: str, genotype: str, sex: str, spe
             dob = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
         except Exception as e:
             dob = None  # fallback if any error occurs in normalization
+
+    if sex is not None:
+        if sex[0].upper() == 'M': #could me 'Male' or just 'M'
+            sex_obj = 'M'
+        elif sex[0].upper() == 'F' :
+            sex_obj = 'F'
+    else:
+        sex_obj = 'U'  # unknown sex
     
     subject = pynwb.file.Subject(age=subject_age, 
                                  description=subject_description,
                                  genotype=str(genotype),
-                                 sex=sex,
+                                 sex=sex_obj,
                                  species=species,
                                  subject_id=subject_id,
                                  weight=str(subject_weight),

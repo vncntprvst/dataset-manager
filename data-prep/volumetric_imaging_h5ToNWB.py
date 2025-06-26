@@ -1,6 +1,6 @@
 #################################################################
 # CONTACT DUANE RINEHART (drinehart@ucsd.edu) WITH ANY QUESTIONS
-# LAST EDIT: 9-JUN-2025
+# LAST EDIT: 25-JUN-2025
 #################################################################
 
 import os, sys
@@ -249,12 +249,12 @@ def main():
             #channel_1
             print('channel 1 detected')
             series_desc = "Stitched volumetric 2P data; CH1 (emission_lambda=475.0): 'Second harmonic generation (SHG) channel; Imaging Description: Skull; Indicator: SHG'"
-            output_file_name = 'WBIM_stitched_SHG' + '.nwb'
+            output_file_name = Path(args.output_path, 'WBIM_stitched_SHG' + '.nwb')
         else:
             #channel_2
             print('channel 2 detected')
             series_desc = "Stitched volumetric 2P data; CH2 (emission_lambda=525.0): 'Fluorescein channel; Imaging Description: Vasculature: Indicator: Fluorescein'",
-            output_file_name = 'WBIM_stitched_Vessel' + '.nwb'
+            output_file_name = Path(args.output_path, 'WBIM_stitched_Vessel' + '.nwb')
         
         print(f"DEBUG: Series description: {series_desc}")
 
