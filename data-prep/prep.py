@@ -1,17 +1,20 @@
 # CREATED: 11-APR-2023
-# LAST EDIT: 6-JUN-2025
+# LAST EDIT: 15-JUL-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''TERMINAL CONVERSION SCRIPT FOR MULTIPLE EXPERIMENTAL MODALITIES'''
 
 import os, sys, math, pynwb, re, glob
+
 from pathlib import Path, PurePath
 import argparse
 import pandas as pd
+import numpy as np
 import uuid
 from datetime import datetime
 from dateutil.tz import tzlocal
 from scipy.io import loadmat
+import h5py
 
 from pynwb import NWBHDF5IO, NWBFile
 from pynwb.image import ImageSeries
@@ -26,6 +29,7 @@ sys.path.insert(1, 'converters')
 
 import utils
 import behavior
+import ephys
 from ConvertIntanToNWB import convert_to_nwb
 
 #################################################################
@@ -50,7 +54,7 @@ def collectArguments():
     argParser = argparse.ArgumentParser()
     argParser.add_argument("-i", "--input_file", help="Input file (.xlsx) containing experimental parameters/data locations")
     argParser.add_argument("-o", "--output_path", help="Output folder/path where converted nwb files will be stored")
-    argParser.add_argument("-exp", "--experiment_modality", help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=fMRI")
+    argParser.add_argument("-exp", "--experiment_modality", help="Valid experiment modes: 1=ephys, 2=widefield, 3=2Photon, 4=behavior, 5=fMRI")
     argParser.add_argument("-researcher", "--researcher_experimenter", help="Name(s) of researcher/experimenter")
     argParser.add_argument("-institution", "--institution", help="Name of institution")
     argParser.add_argument("-debug", "--debug", help="Display debug information", default=False)
@@ -104,7 +108,8 @@ def load_data(input_file, experiment_modality):
     '''Used for meta-data loading'''
 
     #DEFINE COMMONG FIELDS AMONG ALL DATASETS (EXCEL COLUMN HEADERS)
-    commonFields = ['session_id',
+    commonFields = ['session_start_time(YYYY-MM-DD HH:MM)',
+                    'session_id',
                     'subject_id',
                     'age',
                     'subject_description',
@@ -169,7 +174,7 @@ def load_data(input_file, experiment_modality):
         ]
     elif experiment_modality == "4":#behavior
         exp_modality_specific_fields = [
-            'session_start_time',
+            'recordings_folder_directory',
             'sensor_description',
             'ch3_in_36data',
             'ch4_in_36data',
@@ -187,13 +192,12 @@ def load_data(input_file, experiment_modality):
             'notes_file',
             'stimulus_notes_file'
         ]
-    elif experiment_modality == "5":#mri
+    elif experiment_modality == "5":#fMRI
         exp_modality_specific_fields = []
     else:
         #NOT DEFINED [YET]
         exp_modality_specific_fields = []
         
-
 
     #APPEND EXPERIMENT MODALITY SPECFIC FIELDS TO COMMON LIST
     lstNWBFields = commonFields + exp_modality_specific_fields
@@ -234,36 +238,6 @@ def load_data(input_file, experiment_modality):
     lstExtractionFields = lstExtractionFields[mask]
 
     return lstExtractionFields
-
-
-def get_subject(age, subject_description, genotype, sex, species, subject_id, subject_weight, date_of_birth, subject_strain):
-    '''Used for meta-data '''
-
-    subject_age = 'P0D'  # DEFAULT VALUE
-    if isinstance(age, int) == True:
-        subject_age = "P" + str(int(age)) + "D"  # ISO 8601 Duration format - assumes 'days'
-    elif isinstance(age, str) == True and re.search("^P*D$", age):  # STARTS WITH 'P' AND ENDS WITH 'D' (CORRECT FORMATTING)
-        subject_age = age
-        
-    if date_of_birth is not None:
-        dob = date_of_birth.to_pydatetime()  #convert pandas timestamp to python datetime format
-
-        if isinstance(dob.year, int) and isinstance(dob.month, int) and isinstance(dob.day, int) == True:
-            date_of_birth = datetime(dob.year, dob.month, dob.day, tzinfo=tzlocal())
-        else:
-            date_of_birth = None
-    
-    subject = pynwb.file.Subject(age=subject_age, 
-                                 description=subject_description,
-                                 genotype=str(genotype),
-                                 sex=sex,
-                                 species=species,
-                                 subject_id=subject_id,
-                                 weight=str(subject_weight),
-                                 date_of_birth=date_of_birth,
-                                 strain=subject_strain
-                            )
-    return subject
 
 
 def get_electrode_mapping_data(src_folder_directory, electrode_recordings_file, electrode_device_name, electrode_recordings_type, electrode_recordings_contact_material, electrode_recordings_substrate, electrode_recordings_system, electrode_recordings_location):
@@ -313,10 +287,11 @@ def main():
     lstRecords.rename(columns={'date_of_birth(YYYY-MM-DD)': 'date_of_birth'}, inplace=True)
     lstRecords.rename(columns={'age(days)': 'age_days'}, inplace=True)
     ##################################################################################
-    
+
     for cnt, row in enumerate(lstRecords.itertuples(index=False)):
         if pd.isna(row.session_id) or str(row.session_id) == '':
             continue
+
         print(f"PROCESSING DATASET #{cnt + 1}")
         unique_identifier = str(uuid.uuid4())            
         session_id = str(row.session_id) + "_" + unique_identifier
@@ -356,7 +331,7 @@ def main():
         species = row.species
 
         subject = utils.get_subject(age,
-                                    subject_description,
+                                    str(subject_description),
                                     genotype,
                                     sex,
                                     species,
@@ -375,7 +350,7 @@ def main():
             keywords = ['Researchers: ' + str(researcher_experimenter)]
 
         ##################################################################################
-        # CONVERT .MAT FILES TO .h5
+        # EXTRACT DATA FROM .MAT (MODERN MATLAB USES .h5 FORMAT)
         ##################################################################################
         output_filename = None
         output_filename = str(session_id).replace('/', '_').replace('\\', '_') + '.nwb' # REPLACE SLASHES IN FILENAME WITH UNDERSCORE
@@ -396,23 +371,27 @@ def main():
         revised_scratch_path = Path(scratch_path, str(Path(input_path).parent.name))
         Path(args.output_path, str(Path(input_path).parent.name)).mkdir(parents=True, exist_ok=True)
         dest_path = Path(args.output_path, str(Path(input_path).parent.name), output_filename)
-        
+
+        existing_files = list(dest_path.parent.glob(f"{cnt}_*.nwb"))
+        for f in existing_files:
+            print(f'FOUND EXISTING FILE: {f}; SKIPPING')
+            continue
+
         if len(input_files) > 0:
-            for file in input_files:
-                filename = file.name
-                print(f'\tCONVERTING FILE: {filename}')
-                input_filename = Path(input_path, filename)
-                
-                data_io = utils.convert(input_filename, revised_scratch_path)
-                     
+            #CURRENT SETUP FOR SINGLE MATLAB FILE PER SESSION; LOOP THROUGH ALL FILES IN FUTURE
+            filename = input_files[0].name
+
+            input_filename = Path(input_path, filename)
+
+            data_io, mat_file = utils.extract_mat_data_by_key(input_filename, revised_scratch_path)
+            
         else:
             print(f'\tNO INPUT FILES FOUND IN: {input_path}')
             continue
         
-
         # base_input_path = os.path.dirname(input_path)
-        
 
+        
         # print(f'\tINPUT PATH: {input_path}, BASE INPUT PATH: {base_input_path}')
         # last_folder_in_path = os.path.basename(os.path.normpath(base_input_path))
         
@@ -422,8 +401,8 @@ def main():
         # else:
         #     input_filename = Path(base_input_path, dataset['src_folder_directory'], filename)
 
-        # print(f'\tINPUT FILE: {input_filename}')
-        # print(f'\tOUTPUT FILE: {dest_path}')
+        print(f'\tINPUT FILE: {input_filename}')
+        print(f'\tOUTPUT FILE: {dest_path}')
         
         ##################################################################################
         # PROCESS META-DATA, GENERAL
@@ -481,7 +460,7 @@ def main():
 
         ##################################################################################
         # PROCESS META-DATA, ACCORDING TO EXPERIMENT MODALITY
-
+        ##################################################################################
         if experiment_modality == "1":
             ##################################################################################
             # CREATE/CONVERT ELECTRODES TABLE(S) OBJECT
@@ -541,7 +520,159 @@ def main():
             if row.institution == 'Boston University':
                 print("ECONOMO LAB DATA PROCESSING")
                 print(f'\tRESULT NWB FILE WILL BE SAVED TO: {dest_path}')
+                performance_lab = 'Economo Lab'
                 
+                ##########################################################
+                # THIS WAS MULTI-MODAL DATA; BEHAVIOR + EPHYS
+                ##########################################################
+                print(data_io.keys()) 
+                
+                for key in data_io.keys():
+                    print(f'PROCESSING "{key}" DATA')
+                    if key == 'bp': #additional subprocessing
+                        for subkey in data_io[key].keys():
+                            print(f"PROCESSING {key} :: {subkey} SUB-KEY DATA")
+                            if subkey == 'ev':
+                                #process lick events
+                                behavior_events = behavior.add_behavioral_event_data('lick', data_io[key][subkey])
+                                nwbfile.add_acquisition(behavior_events)
+                            elif subkey == 'protocol':
+                                for event_key in data_io[key][subkey].keys():
+                                    print(f"\tPROCESSING {key} :: {subkey} :: {event_key} DATA")
+                                    time_series_name = f'{key}-{subkey}-{event_key}'
+                                    time_series_description = f'{key}-{subkey} {event_key} data from Economo lab'
+                                    behavioral_time_series = behavior.add_timeseries_data(np.array(data_io[key][subkey][event_key]), float(row.video_sampling_rate), time_series_name, time_series_description)
+                                    behavior_module = nwbfile.create_processing_module(
+                                        name=time_series_name, description=str(row.sensor_description)
+                                    )
+                                    behavior_module.add(behavioral_time_series)
+                            elif subkey == 'stim':
+                                print(f"\tPROCESSING {key} :: {subkey} SUB-KEY DATA")
+                                for stim_key in data_io[key][subkey].keys():
+                                    print(f'{stim_key=}')
+                                    time_series_name = f'{key}-{subkey}-{stim_key}'
+                                    time_series_description = f'{key}-{subkey} {stim_key} data from Economo lab'
+                                    behavioral_time_series = behavior.add_timeseries_data(np.array(data_io[key][subkey][stim_key]), float(row.video_sampling_rate), time_series_name, time_series_description)
+                                    behavior_module = nwbfile.create_processing_module(
+                                        name=time_series_name, description=str(row.sensor_description)
+                                    )
+                                    behavior_module.add(behavioral_time_series)
+                            else:
+                                print(f'{subkey=}')
+                                time_series_name = f'{key}-{subkey}'
+                                time_series_description = f'{key}-{subkey} data from Economo lab'
+                                behavioral_time_series = behavior.add_timeseries_data(data_io[key][subkey], float(row.video_sampling_rate), time_series_name, time_series_description)
+                                behavior_module = nwbfile.create_processing_module(
+                                    name=time_series_name, description=str(row.sensor_description)
+                                )
+                                behavior_module.add(behavioral_time_series)
+                    elif key == 'me': #additional subprocessing
+                        subdata = data_io[key]
+                        
+                        # If 'me' is a dict, iterate subkeys; else treat 'me' as direct data
+                        if isinstance(subdata, dict):
+                            print(subdata.keys())
+                            for subkey in subdata.keys():
+                                if subkey == 'moveThresh':
+                                    continue
+                                elif subkey == 'data':
+                                    #SPECIAL PROCESSING FOR DATA (BUT STILL TIME-SERIES)
+                                    ref_array = data_io[key] 
+                                    cluster_ts = behavior.load_cluster_timeseries(subdata['data'], mat_file)
+                                    behavior.add_timeseries_data(cluster_ts, float(row.video_sampling_rate), 'movement_data', 'movement data from Economo lab')
+                                print(f"PROCESSING {key} :: {subkey} SUB-KEY DATA")
+                                time_series_name = f'{key}-{subkey}'
+                                time_series_description = f'{key} {subkey} data from Economo lab'
+                                behavioral_time_series = behavior.add_timeseries_data(
+                                    subdata[subkey], 
+                                    float(row.video_sampling_rate), 
+                                    time_series_name, 
+                                    time_series_description
+                                )
+                                behavior_module = nwbfile.create_processing_module(
+                                    name=time_series_name, description=str(row.sensor_description)
+                                )
+                                behavior_module.add(behavioral_time_series)
+                        else:
+                            # 'me' holds data directly
+                            print(f"PROCESSING {key} DIRECT DATA")
+                            time_series_name = f'{key}'
+                            time_series_description = f'{key} data from Economo lab'
+                            behavioral_time_series = behavior.add_timeseries_data(
+                                subdata,
+                                float(row.video_sampling_rate),
+                                time_series_name,
+                                time_series_description
+                            )
+                            behavior_module = nwbfile.create_processing_module(
+                                name=time_series_name, description=str(row.sensor_description)
+                            )
+                            behavior_module.add(behavioral_time_series)
+                    elif key in ('ex', 'pth', 'sglx', 'trials'): #ignore - meta-data
+                        print(f'IGNORING {key}')
+                        continue
+                    elif key == 'meta':
+                        ##########################################################
+                        print(f'{key} CONTAINS META-DATA FOR EPHYS')
+                        ##########################################################
+                        #under meta, probe
+                        device_description = str(row.device_description)
+                        serial_number = data_io[key]['probe']['serialNum']
+                        electrode_group_location = data_io[key]['probe']['loc']
+
+                        ephys_device = nwbfile.create_device(
+                            name="ephys device",
+                            description=device_description,
+                            manufacturer="",
+                            model_number="",
+                            model_name="",
+                            serial_number=str(serial_number),
+                        )
+                        electrode_group = nwbfile.create_electrode_group(
+                            name="1",
+                            description="",
+                            device=ephys_device,
+                            location=str(electrode_group_location),
+                        )
+                        nwbfile.add_electrode(
+                            group=electrode_group,
+                            #label="",
+                            location=str(electrode_group_location),
+                        )
+                    elif key == 'clu' or key == 'obj': #'obj' contains 'clu' on some datasets
+                        ##########################################################
+                        print(f'{key} CONTAINS DATA FOR EPHYS')
+                        ##########################################################
+                        try:
+                            if key == 'obj' and 'clu' in data_io[key]:
+                                ref_array = data_io[key]['clu']
+                            else:
+                                ref_array = data_io[key]
+
+                            spike_sorted_clusters_data = ephys.process_spike_data(ref_array, mat_file)
+                            ephys.create_electrode_table(nwbfile, spike_sorted_clusters_data, ephys_device)
+
+                            # Create ElectricalSeries
+                            electrical_series = ephys.create_electrical_series(nwbfile, spike_sorted_clusters_data)
+                            nwbfile.add_acquisition(electrical_series)
+
+                            print(f"Processed {len(spike_sorted_clusters_data)} spike clusters")
+
+                        except Exception as e:
+                            print(f"Error processing {key}: {str(e)}")
+                            continue
+                        sys.exit()
+                    else:
+                        print(f'{key=}')
+                        time_series_name = key
+                        time_series_description = f'{key} data from {performance_lab}'
+                        behavioral_time_series = behavior.add_timeseries_data(data_io[key], float(row.video_sampling_rate), str(key), time_series_description)
+                        behavior_module = nwbfile.create_processing_module(
+                            name=time_series_name, description=str(row.sensor_description)
+                        )
+                        behavior_module.add(behavioral_time_series)
+                    
+                    print(f'\tADDED {time_series_name} DATA TO NWB FILE')
             else:
 
                 ##################################################################################
@@ -692,12 +823,13 @@ def main():
 
                     print(f'\tINCLUDING {analysis_file} DATA FROM FILE: {data_filename}')
 
-
             # WRITE NWB FILE TO STORAGE
             print(f'\tWRITING NWB FILE TO STORAGE: {dest_path}')
             with pynwb.NWBHDF5IO(dest_path, 'w') as io:
                 io.write(nwbfile)
 
+            
+                
         else:
             print("not complete")
 

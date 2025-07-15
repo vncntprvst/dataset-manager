@@ -1,5 +1,5 @@
 # CREATED: 4-MAY-2024
-# LAST EDIT: 8-MAY-2023
+# LAST EDIT: 14-JUL-2025
 # AUTHOR: DUANE RINEHART, MBA (drinehart@ucsd.edu)
 
 '''METHODS/FUNCTIONS FOR PROCESSING BEHAVIOR EXPERIMENTAL MODALITY'''
@@ -8,9 +8,12 @@ import os
 from pathlib import Path, PurePath
 import shutil
 from scipy.io import loadmat
+from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import pandas as pd
-from pynwb.behavior import TimeSeries, BehavioralTimeSeries
+import h5py
+from h5py import Dataset
+from pynwb.behavior import TimeSeries, BehavioralTimeSeries, BehavioralEvents
 
 
 def get_video_reference_data(src_file_with_path, nwb_folder_directory, symbolic_link=False):
@@ -79,39 +82,159 @@ def extract_img_series_data(mat_file):
     return img_comments
 
 
-def add_timeseries_data(file, video_sampling_rate_Hz, name, description):
-    '''READ FILE, EXTRACT NDARRAY INFO AND CREATE NWB-COMPATIBLE OBJECT
-       COMPATIBLE WITH EXCEL (.xlsx) AND MATLAB (.mat)
-    '''
-
-    file_extension = Path(file).suffix
-
+def add_timeseries_data(data, video_sampling_rate_Hz, name, description):
+    """
+    Creates a NWB TimeSeries or BehavioralTimeSeries from various input types.
+    Supports:
+    - np.ndarray
+    - dict (converted from MATLAB structs)
+    - .xlsx/.mat files
+    - list of 1D NumPy arrays
+    - h5py.Dataset
+    """
+    print(f"Processing data for: {name}")
     unit = 'NA'
+    print(f"add_timeseries_data received data of type: {type(data)}")
 
-    if file_extension == '.xlsx':
-        nd_array_timeseries_data = pd.read_excel(file).to_numpy()
+    if isinstance(data, list):
+        print(f"Length: {len(data)}; element types: {[type(d) for d in data[:5]]}")
+        # === Fix 1: flatten if list contains a single list ===
+        if len(data) == 1 and isinstance(data[0], list):
+            print("Flattening nested list of arrays")
+            data = data[0]
+
+    # === CASE 0: Dictionary (from MATLAB struct) ===
+    if isinstance(data, dict):
+        print("Converting dictionary (MATLAB struct) to padded NumPy array")
+        
+        print(f"Dict keys in '{name}': {list(data.keys())}")
+        special_keys = {'bp', 'sglx', 'traj', 'trials', 'me'}
+        arrays = []
+
+        for k, v in data.items():
+            print(f"  {k}: type={type(v)}, shape={getattr(v, 'shape', 'N/A')}")
+            if k in special_keys:
+                if isinstance(v, list):
+                    print(f"  -> Scanning list from key '{k}'")
+                    for i, item in enumerate(v):
+                        print(f"    [{k}][{i}]: type={type(item)}, shape={getattr(item, 'shape', 'N/A')}")
+
+                        # Try to convert list-of-lists into ndarray
+                        if isinstance(item, list):
+                            try:
+                                arr = np.asarray(item)
+                                print(f"      -> Converted to array: shape={arr.shape}, dtype={arr.dtype}")
+                                if arr.ndim <= 2 and np.issubdtype(arr.dtype, np.number):
+                                    arrays.append(arr)
+                            except Exception as e:
+                                print(f"      -> Failed to convert list to array: {e}")
+
+                        # Check for dicts with embedded arrays
+                        elif isinstance(item, dict):
+                            for subk, subv in item.items():
+                                print(f"      [{k}][{i}]['{subk}']: type={type(subv)}, shape={getattr(subv, 'shape', 'N/A')}")
+                                if isinstance(subv, np.ndarray) and subv.ndim <= 2:
+                                    print(f"        -> Adding array from '{k}[{i}][{subk}]'")
+                                    arrays.append(subv)
+
+                        # Direct array
+                        elif isinstance(item, np.ndarray):
+                            print(f"      -> Direct array: shape={item.shape}")
+                            if item.ndim <= 2:
+                                arrays.append(item)
+                elif isinstance(v, dict):
+                    print(f"  -> Scanning nested dict from key '{k}'")
+                    for subk, subv in v.items():
+                        if isinstance(subv, np.ndarray) and subv.ndim <= 2:
+                            arrays.append(subv)
+
+                elif isinstance(v, np.ndarray) and v.ndim <= 2:
+                    arrays.append(v)
+
+        if not arrays:
+            raise ValueError(f"No usable NumPy arrays found in special keys for '{name}'")
+
+        max_len = max(arr.shape[0] for arr in arrays)
+        padded = np.full((len(arrays), max_len), np.nan)
+
+        for i, arr in enumerate(arrays):
+            padded[i, :arr.shape[0]] = arr
+
+        nd_array_timeseries_data = padded
+        unit += " (padded with NaN)"
+    # === CASE 1: NumPy array ===
+    if isinstance(data, np.ndarray):
+        nd_array_timeseries_data = data
+
+    # === CASE 2: List of 1D arrays ===
+    elif isinstance(data, list) and all(isinstance(d, np.ndarray) for d in data):
+        try:
+            nd_array_timeseries_data = np.stack(data)
+        except ValueError:
+            max_len = max(d.shape[0] for d in data)
+            padded = np.full((len(data), max_len), np.nan)
+            for i, d in enumerate(data):
+                padded[i, :d.shape[0]] = d
+            nd_array_timeseries_data = padded
+            unit += " (padded with NaN)"
+
+    # === CASE 3: h5py.Dataset ===
+    elif isinstance(data, Dataset):
+        nd_array_timeseries_data = data[()].squeeze()
+
+    # === CASE 4: file path (.xlsx, .mat) ===
+    elif isinstance(data, (str, bytes, os.PathLike)):
+        file = data
+        file_extension = Path(file).suffix
+
+        if file_extension == '.xlsx':
+            nd_array_timeseries_data = pd.read_excel(file).to_numpy()
+
+        elif file_extension == '.mat':
+            mat_data = loadmat(file)
+            nd_array_timeseries_data = mat_data['data']
+            if nd_array_timeseries_data.shape[0] == 1:
+                nd_array_timeseries_data = nd_array_timeseries_data.T
+
+            if name == 'raw_labchart_data':
+                for datastart, dataend in zip(mat_data['datastart'], mat_data['dataend']):
+                    unit += f"({int(datastart)},{int(dataend)}) "
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+
     else:
-        nd_array_timeseries_data = loadmat(file)['data']  # get just the ndarray part
+        raise TypeError(f"Unsupported data type: {type(data)}")
 
-        if nd_array_timeseries_data.shape[0] == 1:
-            nd_array_timeseries_data = nd_array_timeseries_data.T
+    # === Sanitize ===
+    try:
+        nd_array_timeseries_data = sanitize_data(nd_array_timeseries_data)
+    except ValueError as e:
+        if nd_array_timeseries_data.dtype.kind in {'U', 'S', 'O'}:
+            flat_data = nd_array_timeseries_data.flatten().astype(str)
+            le = LabelEncoder()
+            try:
+                numeric_data = le.fit_transform(flat_data)
+                nd_array_timeseries_data = numeric_data.reshape(nd_array_timeseries_data.shape)
+                unit += " (encoded categories)"
+            except Exception as err:
+                raise ValueError(f"Cannot encode string data in '{name}' to numeric: {err}") from err
+        else:
+            raise e
 
-        if name == 'raw_labchart_data':
-            for datastart, dataend in zip(loadmat(file)['datastart'], loadmat(file)['dataend']):
-                unit += "({},{}) ".format(str(int(datastart)), str(int(dataend)))
-
-
-    speed_time_series = TimeSeries(
+    # === Create NWB TimeSeries ===
+    timeseries = TimeSeries(
         name=name,
         data=nd_array_timeseries_data,
-        rate = video_sampling_rate_Hz, #float
-        description=description,
-        unit=unit
+        rate=float(video_sampling_rate_Hz),
+        description=str(description),
+        unit=str(unit)
     )
+
     behavioral_time_series = BehavioralTimeSeries(
-        time_series=speed_time_series,
-        name="BehavioralTimeSeries",
+        time_series=timeseries,
+        name="BehavioralTimeSeries"
     )
+
     return behavioral_time_series
 
 
@@ -163,3 +286,123 @@ def add_str_data(file, name):
 
 
     return data
+
+
+def sanitize_data(data):
+    """
+    Attempt to convert messy MATLAB-loaded arrays (possibly with objects or references)
+    into a flat numpy float array, filtering out invalid elements.
+    """
+    arr = np.asarray(data)
+    try:
+        if isinstance(arr, np.ndarray):
+            if arr.dtype.kind in {'U', 'S'}:  # Unicode or byte string
+                return np.asarray(arr, dtype=str)
+            elif arr.dtype == object:
+                flat = []
+                for item in arr.flatten():
+                    if isinstance(item, (float, int, np.floating, np.integer)):
+                        flat.append(item)
+                    elif isinstance(item, (list, tuple, np.ndarray)):
+                        flat.extend([x for x in np.asarray(item).flatten() if isinstance(x, (float, int))])
+                    elif isinstance(item, h5py.Reference):
+                        continue  # skip
+                    elif isinstance(item, (str, np.str_)):
+                        flat.append(str(item))
+                # Check if all are strings
+                if all(isinstance(x, str) for x in flat):
+                    return np.asarray(flat, dtype=str)
+                return np.asarray(flat, dtype=float)
+            else:
+                return np.asarray(arr, dtype=float)
+        else:
+            # Scalar input
+            return np.asarray([arr], dtype=float)
+    except Exception as e:
+        raise ValueError(f"Cannot convert object array to float or string for NWB TimeSeries: {e}")
+
+
+def add_behavioral_event_data(event_name: str, events_dict, unit='seconds', description_prefix='Behavioral event timestamps'):
+    '''
+    #ref: https://pynwb.readthedocs.io/en/stable/pynwb.behavior.html
+
+    Create a BehavioralEvents container with a single TimeSeries representing event timestamps (e.g., licks).
+
+    Parameters
+    ----------
+    event_name : str
+        Name of the behavioral event (e.g., 'lickL', 'lickR').
+    event_times : list, np.ndarray
+        Timestamps of the events (should be 1D array-like).
+    unit : str, optional
+        Unit of the timestamps, default is 'seconds'.
+    description : str, optional
+        Description of the behavioral event time series.
+
+    Returns
+    -------
+    BehavioralEvents
+        A BehavioralEvents object containing the given timestamps as an instantaneous TimeSeries.
+
+    '''
+    events = BehavioralEvents(name="BehavioralEvents")
+
+    for sub_event_name, raw in events_dict.items():
+        # Flatten nested object arrays
+        flattened_times = []
+
+        if isinstance(raw, np.ndarray) and raw.dtype == object:
+            for item in raw.flatten():
+                if isinstance(item, (float, int, np.floating, np.integer)):
+                    flattened_times.append(item)
+                elif isinstance(item, (list, np.ndarray)):
+                    flattened_times.extend(np.asarray(item).flatten())
+                # Skip references, None, etc.
+        else:
+            flattened_times = np.asarray(raw).flatten()
+
+        # Convert to numpy float array
+        try:
+            event_times = np.asarray(flattened_times, dtype=float)
+        except Exception as e:
+            print(f"Skipping {sub_event_name}: can't convert to float – {e}")
+            continue
+
+        # Skip if empty or NaN
+        if event_times.size == 0 or np.all(np.isnan(event_times)):
+            continue
+
+        # Add as instantaneous TimeSeries
+        events.create_timeseries(
+            name=sub_event_name,
+            data=np.ones_like(event_times),
+            timestamps=event_times,
+            unit='seconds',
+            continuity='instantaneous',
+            description=f'{description_prefix}: {sub_event_name}'
+        )
+
+    return events
+
+
+def load_cluster_timeseries(ref_array, mat_file):
+    """
+    Loads each dataset as a 1D NumPy array and returns a list per cluster.
+    """
+    all_clusters = []
+    for i, ref_list in enumerate(ref_array):
+        ref_list = np.ravel(ref_list)
+        print(f"Cluster {i} contains {len(ref_list)} object references")
+
+        time_series_data = []
+        for j, ref in enumerate(ref_list):
+            dataset = mat_file[ref]
+            if isinstance(dataset, h5py.Dataset):
+                data = dataset[()].squeeze()  # convert (N,1) to (N,)
+                time_series_data.append(data)
+            else:
+                raise TypeError(f"Expected h5py.Dataset at ref {j}, got {type(dataset)}")
+
+        all_clusters.append(time_series_data)
+
+    return all_clusters
