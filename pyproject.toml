@@ -1,7 +1,7 @@
 [project]
-name = "xls-generator"
+name = "data-bundling-ui"
 version = "0.1.0"
-description = "App to generate Excel templates for U19 experiments' data conversion"
+description = "App to bundle data and metadata for U19 experiments' data conversion"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

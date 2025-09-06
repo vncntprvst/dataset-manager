@@ -4,12 +4,12 @@ from typing import List, Dict
 
 import streamlit as st
 
-from xls_generator.schema import (
+from data_bundling_ui.schema import (
     get_supported_experiment_types,
     collect_required_fields,
 )
-from xls_generator.export import build_workbook_bytes, build_csv_bytes
-from xls_generator.validation import (
+from data_bundling_ui.export import build_workbook_bytes, build_csv_bytes
+from data_bundling_ui.validation import (
     run_pynwb_validation,
     run_nwb_inspector,
 )

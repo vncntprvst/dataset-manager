@@ -1763,7 +1763,7 @@ wheels = [
 ]
 
 [[package]]
-name = "xls-generator"
+name = "data-bundling-ui"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
