@@ -1,0 +1,10 @@
+biosource_id=;
+device_name=Wide-field;
+device_description=Wide-field fluorescent microscope;
+optical_channel_description=GFP, mApple;
+optical_channel_emission_lambda=514, 590;
+imaging_plane_description=Pial surface vessels and underlying neurons;
+imaging_plane_exitation_lambda=470, 560
+imaging_plane_imaging_rate=4.46;
+imaging_plane_indicator=GCaMP, jRGECO;	
+imaging_plane_location=Pial surface;
