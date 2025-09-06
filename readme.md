@@ -23,19 +23,17 @@ Then we run the generator script to create the appropriate spreadsheet table for
 
 ---
 
-Usage
+Usage:
+- Clone this repo.
+- Run the app:
+If using [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (recommended):  
+`uv run streamlit run app.py`
 
-- Prereqs: Python 3.9+ recommended.
-- Optional dependencies enable richer extraction and XLSX export; the app gracefully falls back if missing.
+or, if not using uv:
+    - Create a virtual environment (Python 3.9+), then install dependencies:  
+    `pip install -r requirements.txt`
+    - Activate environment, then `streamlit run app.py`
 
-Install (optional but recommended)
-
-- Create a virtual environment, then install dependencies:
-- `pip install -r requirements.txt`
-
-Run the app
-
-- `streamlit run app.py`
 - In the sidebar, select experimental types and whether to include DANDI/NWB fields.
 - Set the number of rows (sessions) you want in the template.
 - Download as `.xlsx` (if pandas/openpyxl present) or `.csv`.
@@ -44,4 +42,4 @@ Notes
 
 - If `dandischema` is installed, DANDI fields are derived from the Pydantic models; otherwise a curated list is used.
 - If `pynwb` is installed, NWB required fields are sourced from `NWBFile`; otherwise a curated list is used.
-- Validation and NWB Inspector integration can be added in a subsequent iteration.
+- NWB Validation: Upload an `.nwb` file in the app to run PyNWB validation and NWB Inspector checks (requires `pynwb` and `nwbinspector`).

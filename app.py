@@ -9,6 +9,10 @@ from xls_generator.schema import (
     collect_required_fields,
 )
 from xls_generator.export import build_workbook_bytes, build_csv_bytes
+from xls_generator.validation import (
+    run_pynwb_validation,
+    run_nwb_inspector,
+)
 
 
 st.set_page_config(page_title="U19 Spreadsheet Generator", page_icon="📄", layout="wide")
@@ -113,7 +117,73 @@ def main() -> None:
             mime="text/csv",
         )
 
+    st.divider()
+    st.subheader("NWB Validation (optional)")
+    st.caption(
+        "Upload an .nwb file to run PyNWB validation and NWB Inspector best-practice checks."
+    )
+
+    uploaded = st.file_uploader("NWB file", type=["nwb"]) 
+    col1, col2 = st.columns(2)
+    with col1:
+        do_pynwb = st.checkbox("Run PyNWB validator", value=True)
+    with col2:
+        do_inspector = st.checkbox("Run NWB Inspector", value=True)
+
+    if uploaded is not None and (do_pynwb or do_inspector):
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
+
+        try:
+            if do_pynwb:
+                st.write("Running PyNWB validation…")
+                vres = run_pynwb_validation(tmp_path)
+                if vres.get("status") == "missing":
+                    st.warning("PyNWB not installed; skipping PyNWB validation.")
+                elif vres.get("ok"):
+                    st.success("PyNWB: No validation errors found.")
+                else:
+                    st.error(f"PyNWB: Found {vres.get('error_count', 0)} issues.")
+                    if vres.get("errors"):
+                        st.code("\n".join(vres["errors"])[:4000])
+
+            if do_inspector:
+                st.write("Running NWB Inspector…")
+                ires = run_nwb_inspector(tmp_path)
+                if ires.get("status") == "missing":
+                    st.warning("nwbinspector not installed; skipping Inspector checks.")
+                else:
+                    total = ires.get("count", 0)
+                    by_sev = ires.get("by_severity", {})
+                    st.info(
+                        f"Inspector messages: {total} ("
+                        + ", ".join(f"{k}: {v}" for k, v in by_sev.items())
+                        + ")"
+                    )
+                    msgs = ires.get("messages", [])
+                    if msgs:
+                        # Show a compact table view
+                        st.dataframe(
+                            [
+                                {
+                                    "severity": m.get("severity"),
+                                    "check": m.get("check_name"),
+                                    "location": m.get("location"),
+                                    "message": m.get("message"),
+                                }
+                                for m in msgs[:500]
+                            ]
+                        )
+        finally:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     main()
-
