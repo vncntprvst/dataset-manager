@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 
 # Curated defaults used if external libs are unavailable
@@ -20,6 +20,26 @@ CURATED_DANDI_FIELDS: List[str] = [
     "sex",
     "session_start_time",
     "protocol",
+]
+
+# Common fields expected in U19 templates (order matters)
+COMMON_FIELDS: List[str] = [
+    "session_start_time(YYYY-MM-DD HH:MM)",
+    "session_id",
+    "subject_id",
+    "age",
+    "subject_description",
+    "genotype",
+    "sex",
+    "species",
+    "subject_weight",
+    "subject_strain",
+    "date_of_birth(YYYY-MM-DD)",
+    "session_description",
+    "src_folder_directory",
+    "experimenters",
+    "institution",
+    "identifier",
 ]
 
 CURATED_NWB_FIELDS: List[str] = [
@@ -91,6 +111,16 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
 }
 
 
+# Fields that the app can auto-populate from files/folders; used for UI grouping
+AUTO_FIELDS: List[str] = [
+    "src_folder_directory",
+    "session_id",
+    "session_start_time(YYYY-MM-DD HH:MM)",
+    "date_of_birth(YYYY-MM-DD)",
+    "identifier",
+]
+
+
 def _try_import_dandi_fields() -> List[str] | None:
     try:
         # Lazy import; dandischema is optional
@@ -131,9 +161,10 @@ def get_supported_experiment_types() -> List[str]:
 
 
 def collect_required_fields(
-    experiment_types: List[str], include_dandi: bool, include_nwb: bool
+    experiment_types: List[str], include_dandi: bool = True, include_nwb: bool = True
 ) -> List[str]:
-    fields: List[str] = []
+    # Start with the common U19 fields to ensure Subject and defaults show up
+    fields: List[str] = list(COMMON_FIELDS)
 
     # Per-experiment fields
     for et in experiment_types:
@@ -144,7 +175,7 @@ def collect_required_fields(
         dandi_fields = _try_import_dandi_fields()
         fields.extend(dandi_fields if dandi_fields else CURATED_DANDI_FIELDS)
 
-    # NWB fields
+    # NWB fields (ensure required ones are present; COMMON_FIELDS already includes many)
     if include_nwb:
         nwb_fields = _try_import_nwb_fields()
         fields.extend(nwb_fields if nwb_fields else CURATED_NWB_FIELDS)
@@ -158,4 +189,13 @@ def collect_required_fields(
             deduped.append(f)
 
     return deduped
+
+
+def split_user_vs_auto(fields: List[str]) -> Tuple[List[str], List[str]]:
+    auto_set = set(AUTO_FIELDS)
+    user_fields: List[str] = []
+    auto_fields: List[str] = []
+    for f in fields:
+        (auto_fields if f in auto_set else user_fields).append(f)
+    return user_fields, auto_fields
 
