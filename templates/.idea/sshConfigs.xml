@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="SshConfigs">
-    <configs>
-      <sshConfig authType="PASSWORD" host="ratto.dk.ucsd.edu" id="e8f562d7-dfef-49c0-93df-fc2a051fd58c" port="22" nameFormat="DESCRIPTIVE" username="drinehart" useOpenSSHConfig="true" />
-    </configs>
-  </component>
-</project>

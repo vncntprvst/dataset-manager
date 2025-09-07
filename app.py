@@ -19,9 +19,9 @@ st.set_page_config(page_title="U19 Spreadsheet Generator", page_icon="📄", lay
 
 
 def main() -> None:
-    st.title("U19 Spreadsheet Table Generator 📄")
+    st.title("Metadata bundler")
     st.caption(
-        "Define a spreadsheet template based on experimental types, DANDI metadata, and NWB core fields."
+        "Define a minimal information set based on experimental types, and required DANDI/NWB core fields."
     )
 
     with st.sidebar:
