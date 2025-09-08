@@ -24,30 +24,6 @@ def _set_mode(new_mode: str):
     st.session_state["mode"] = new_mode
 
 
-def _scan_tree(root: str, max_depth: int = 4) -> str:
-    def _walk(path: str, prefix: str, depth: int) -> List[str]:
-        if depth > max_depth:
-            return []
-        lines: List[str] = []
-        try:
-            entries = sorted([e for e in os.scandir(path)], key=lambda e: (not e.is_dir(), e.name.lower()))
-        except Exception:
-            return []
-        for idx, e in enumerate(entries):
-            connector = "└── " if idx == len(entries) - 1 else "├── "
-            lines.append(prefix + connector + e.name)
-            if e.is_dir():
-                extension = "    " if idx == len(entries) - 1 else "│   "
-                lines.extend(_walk(e.path, prefix + extension, depth + 1))
-        return lines
-
-    if not os.path.isdir(root):
-        return ""
-    lines = [os.path.basename(os.path.normpath(root))]
-    lines.extend(_walk(root, "", 1))
-    return "\n".join(lines)
-
-
 SUBTYPES: Dict[str, List[str]] = {
     "Electrophysiology": ["Neuropixels", "Silicon probes", "Single electrode", "Tetrodes", "Patch-clamp"],
     "Behavior tracking": ["Video", "Analog measurement", "Other"],
@@ -59,137 +35,14 @@ SUBTYPES: Dict[str, List[str]] = {
     "EEG recordings": [],
 }
 
-
-def _detect_formats(example_dirs: Dict[str, str]) -> List[Dict[str, str]]:
-    rows: List[Dict[str, str]] = []
-    def has_any(path: str, exts: List[str]) -> bool:
-        for root, _, files in os.walk(path):
-            for f in files:
-                for ext in exts:
-                    if f.lower().endswith(ext):
-                        return True
-        return False
-
-    # Ephys
-    if example_dirs.get("Electrophysiology") and os.path.isdir(example_dirs["Electrophysiology"]):
-        p = example_dirs["Electrophysiology"]
-        formats = []
-        if has_any(p, [".ns1", ".ns2", ".ns3", ".ns4", ".ns5", ".ns6", ".nsx", ".nev"]):
-            formats.append("Blackrock .nsx/.nev")
-        if has_any(p, [".ap.bin", ".lf.bin", ".meta"]):
-            formats.append("Neuropixels .bin/.meta")
-        if has_any(p, [".mat", ".npy", ".csv", ".dat"]):
-            formats.append("Generic .mat/.npy/.csv/.dat")
-        if formats:
-            rows.append({"Data type": "Electrophysiology recordings", "Format": ", ".join(formats)})
-
-    # Behavior
-    if example_dirs.get("Behavior tracking") and os.path.isdir(example_dirs["Behavior tracking"]):
-        p = example_dirs["Behavior tracking"]
-        fmts = []
-        if has_any(p, [".mp4", ".avi", ".mov"]):
-            fmts.append("Video .mp4/.avi/.mov")
-        if fmts:
-            rows.append({"Data type": "Behavior videos", "Format": ", ".join(fmts)})
-
-    # Task parameters
-    any_dir = example_dirs.get("Electrophysiology") or example_dirs.get("Behavior tracking")
-    if any_dir and os.path.isdir(any_dir):
-        p = any_dir
-        if has_any(p, [".csv", ".mat", ".dat"]):
-            rows.append({"Data type": "Task parameters", "Format": ".csv, .mat, .dat"})
-
-    # Optogenetics
-    if example_dirs.get("Optogenetics") and os.path.isdir(example_dirs["Optogenetics"]):
-        p = example_dirs["Optogenetics"]
-        if has_any(p, [".csv", ".txt", ".json"]):
-            rows.append({"Data type": "Optogenetic stimulation settings", "Format": ".csv, .txt, .json"})
-
-    # Experimental metadata
-    for p in example_dirs.values():
-        if p and os.path.isdir(p) and (has_any(p, [".xlsx"]) or has_any(p, [".json"])):
-            rows.append({"Data type": "Experimental metadata", "Format": ".xlsx, .json"})
-            break
-
-    return rows
-
-
-def _list_drives() -> List[str]:
-    drives: List[str] = []
-    if os.name == "nt":
-        import string
-        for letter in string.ascii_uppercase:
-            path = f"{letter}:\\"
-            if os.path.exists(path):
-                drives.append(path)
-    else:
-        drives.append("/")
-    return drives
-
-
-def folder_picker(label: str, key: str, start_dir: str | None = None) -> str:
-    state_cwd_key = f"{key}__cwd"
-    state_sel_key = f"{key}__sel"
-    state_path_key = f"{key}__picked"
-
-    if state_cwd_key not in st.session_state:
-        st.session_state[state_cwd_key] = start_dir or (os.getcwd())
-
-    cwd = st.session_state[state_cwd_key]
-    if not os.path.isdir(cwd):
-        cwd = os.getcwd()
-        st.session_state[state_cwd_key] = cwd
-
-    st.caption(label)
-    cols = st.columns([2, 1, 1])
-    with cols[0]:
-        st.text_input("Current folder", value=cwd, key=f"{key}__path_show", disabled=True)
-    with cols[1]:
-        if st.button("Up", key=f"{key}__up"):
-            parent = os.path.dirname(cwd.rstrip("/\\")) or cwd
-            if parent and os.path.isdir(parent):
-                st.session_state[state_cwd_key] = parent
-                cwd = parent
-    with cols[2]:
-        # Quick jump to drive/root
-        roots = _list_drives()
-        if roots:
-            root_choice = st.selectbox("Jump", options=roots, index=0, key=f"{key}__root")
-            if st.button("Go", key=f"{key}__go_root"):
-                if os.path.isdir(root_choice):
-                    st.session_state[state_cwd_key] = root_choice
-                    cwd = root_choice
-
-    # Manual jump
-    jcols = st.columns([3, 1])
-    with jcols[0]:
-        jump_to = st.text_input("Go to path", value=cwd, key=f"{key}__jump")
-    with jcols[1]:
-        if st.button("Open", key=f"{key}__open"):
-            if os.path.isdir(jump_to):
-                st.session_state[state_cwd_key] = jump_to
-                cwd = jump_to
-
-    try:
-        entries = sorted([e for e in os.scandir(cwd) if e.is_dir()], key=lambda e: e.name.lower())
-    except Exception:
-        entries = []
-    names = [e.name for e in entries]
-    sel = st.selectbox("Subfolders", options=names, index=0 if names else None, key=state_sel_key)
-    bcols = st.columns([1, 1])
-    with bcols[0]:
-        if st.button("Enter", key=f"{key}__enter") and sel:
-            nxt = os.path.join(cwd, sel)
-            if os.path.isdir(nxt):
-                st.session_state[state_cwd_key] = nxt
-                cwd = nxt
-    picked = st.session_state.get(state_path_key, "")
-    with bcols[1]:
-        if st.button("Use this folder", key=f"{key}__use"):
-            st.session_state[state_path_key] = cwd
-            picked = cwd
-
-    return picked
+def _example_formats_df() -> List[Dict[str, str]]:
+    return [
+        {"Data type": "Electrophysiology recordings", "Format": "Blackrock `.nsx`,  `.ccf`, `.nev` files"},
+        {"Data type": "Behavior videos", "Format": "MP4 recordings"},
+        {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
+        {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
+        {"Data type": "Experimental metadata", "Format": "`WallPassing_StatusTable.xlsx`, `.json` files"},
+    ]
 
 
 def main() -> None:
@@ -213,43 +66,52 @@ def main() -> None:
         st.header("Project description")
         st.write("Describe your project organization and data formats.")
 
-        # Experimental types and subtypes with example directory
+        # Experimental types and subtypes
         exp_types = st.multiselect(
             "Experimental types",
             options=get_supported_experiment_types(),
             default=[],
         )
 
-        example_dirs: Dict[str, str] = {}
         selected_subtypes: Dict[str, List[str]] = {}
         for et in exp_types:
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                subtypes = st.multiselect(
-                    f"Subtypes – {et}", options=SUBTYPES.get(et, ["Other"]), default=[]
-                )
-                selected_subtypes[et] = subtypes
-            with col2:
-                example_dir = folder_picker(
-                    f"Example data directory – {et}", key=f"exdir_{et.replace(' ', '_')}", start_dir=os.getcwd()
-                )
-            example_dirs[et] = example_dir
+            subtypes = st.multiselect(
+                f"Subtypes – {et}", options=SUBTYPES.get(et, ["Other"]), default=[]
+            )
+            selected_subtypes[et] = subtypes
 
         st.subheader("Raw data formats")
-        rows = _detect_formats(example_dirs)
-        if rows:
-            st.dataframe(rows, hide_index=True)
-        else:
-            st.info("Provide example directories above to detect raw formats.")
+        st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
+        if "data_formats_rows" not in st.session_state:
+            st.session_state["data_formats_rows"] = _example_formats_df()
+        data_formats = st.data_editor(
+            st.session_state["data_formats_rows"],
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "Data type": st.column_config.TextColumn(required=True),
+                "Format": st.column_config.TextColumn(required=True),
+            },
+            key="data_formats_editor",
+        )
+        st.session_state["data_formats_rows"] = data_formats
 
         st.subheader("Data organization")
-        ex_session = folder_picker("Example session folder (for tree)", key="tree_example", start_dir=os.getcwd())
-        if ex_session:
-            tree_txt = _scan_tree(ex_session, max_depth=4)
-            if tree_txt:
-                st.code(tree_txt)
-            else:
-                st.warning("Could not read folder or it is empty.")
+        st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
+        if "data_org_tree" not in st.session_state:
+            st.session_state["data_org_tree"] = (
+                "Subject\n"
+                "├── YYYY_MM_DD\n"
+                "│   ├── SUBJECT_SESSION_ID\n"
+                "│   │   ├── raw_ephys_data\n"
+                "│   │   ├── raw_video_data\n"
+                "│   │   ├── task_data\n"
+                "│   │   └── processed_data\n"
+            )
+        tree_text = st.text_area("Tree editor", value=st.session_state["data_org_tree"], height=240, key="tree_editor")
+        st.session_state["data_org_tree"] = tree_text
+        st.caption("Preview")
+        st.code(tree_text)
         return
 
     if mode == "template":
@@ -281,7 +143,7 @@ def main() -> None:
                 st.caption("Auto-populated fields")
                 auto_fields = st.data_editor({"Column": auto_fields}, hide_index=True)["Column"].tolist()
 
-            dataset_dir = folder_picker("Dataset directory (to count sessions)", key="dataset_dir_create", start_dir=os.getcwd())
+            dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
             n_rows = 1
             if dataset_dir and os.path.isdir(dataset_dir):
                 try:
@@ -352,7 +214,7 @@ def main() -> None:
                 st.caption("Auto-populated fields")
                 auto_fields = st.data_editor({"Column": auto_fields}, hide_index=True)["Column"].tolist()
 
-            dataset_dir = folder_picker("Dataset directory (to count sessions)", key="dataset_dir_load", start_dir=os.getcwd())
+            dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
             n_rows = 1
             if dataset_dir and os.path.isdir(dataset_dir):
                 try:

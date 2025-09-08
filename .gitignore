@@ -8,4 +8,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Excel temp files
+~$*.xlsx
+**/~$*
+
 TODO
+
+
