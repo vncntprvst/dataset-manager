@@ -138,10 +138,20 @@ def main() -> None:
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
-                user_fields = st.data_editor({"Column": user_fields}, hide_index=True)["Column"].tolist()
+                uf_df = pd.DataFrame({"Column": user_fields})
+                uf_edit = st.data_editor(uf_df, hide_index=True)
+                try:
+                    user_fields = uf_edit["Column"].tolist()
+                except Exception:
+                    user_fields = uf_df["Column"].tolist()
             with c2:
                 st.caption("Auto-populated fields")
-                auto_fields = st.data_editor({"Column": auto_fields}, hide_index=True)["Column"].tolist()
+                af_df = pd.DataFrame({"Column": auto_fields})
+                af_edit = st.data_editor(af_df, hide_index=True)
+                try:
+                    auto_fields = af_edit["Column"].tolist()
+                except Exception:
+                    auto_fields = af_df["Column"].tolist()
 
             dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
             n_rows = 1
@@ -209,10 +219,20 @@ def main() -> None:
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
-                user_fields = st.data_editor({"Column": user_fields}, hide_index=True)["Column"].tolist()
+                uf_df = pd.DataFrame({"Column": user_fields})
+                uf_edit = st.data_editor(uf_df, hide_index=True)
+                try:
+                    user_fields = uf_edit["Column"].tolist()
+                except Exception:
+                    user_fields = uf_df["Column"].tolist()
             with c2:
                 st.caption("Auto-populated fields")
-                auto_fields = st.data_editor({"Column": auto_fields}, hide_index=True)["Column"].tolist()
+                af_df = pd.DataFrame({"Column": auto_fields})
+                af_edit = st.data_editor(af_df, hide_index=True)
+                try:
+                    auto_fields = af_edit["Column"].tolist()
+                except Exception:
+                    auto_fields = af_df["Column"].tolist()
 
             dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
             n_rows = 1
