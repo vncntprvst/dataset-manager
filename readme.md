@@ -1,4 +1,4 @@
-# Data Bundling UI
+# Dataset manager
 
 A Streamlit interface that helps bundle data and metadata based on experimental types provided by users.
 
