@@ -17,7 +17,7 @@ from data_bundling_ui.validation import (
 )
 
 
-st.set_page_config(page_title="U19 Spreadsheet Generator", page_icon="📄", layout="wide")
+st.set_page_config(page_title="U19 Dataset Manager", page_icon="📄", layout="wide")
 
 
 def _set_mode(new_mode: str):
@@ -33,6 +33,7 @@ SUBTYPES: Dict[str, List[str]] = {
     "2p imaging": ["Resonant", "Galvo", "Other"],
     "Widefield imaging": ["sCMOS", "Other"],
     "EEG recordings": [],
+    "Notes": []
 }
 
 def _example_formats_df() -> List[Dict[str, str]]:
@@ -46,8 +47,8 @@ def _example_formats_df() -> List[Dict[str, str]]:
 
 
 def main() -> None:
-    st.title("Metadata bundler")
-    st.caption("Generate, load, and validate templates; describe your project.")
+    st.title("Dataset Manager for U19 Projects")
+    st.caption("Describe your project and create scripts to package and publish your data.")
 
     # Sidebar: primary actions
     with st.sidebar:
