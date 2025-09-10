@@ -1,7 +1,146 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
+
+# Lightweight checks for template completeness (proxy fields -> NWB mappings)
+# These checks operate on column names in the generated templates, not on NWB files.
+# They complement runtime NWB validation by ensuring the spreadsheet will have the
+# minimum metadata needed to construct NWB Devices, ElectrodeGroups, and ImageSeries.
+
+
+def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, Any]:
+    """Return minimum template field requirements for NWB mapping.
+
+    The returned dict contains:
+    - core_any: list of alternative names that satisfy each core requirement
+      (e.g., session_start_time can be either "session_start_time" or
+      "session_start_time(YYYY-MM-DD HH:MM)")
+    - subject_all: set of field names that should be present for Subject
+    - subject_any_one_of: list of groups where at least one must be present
+    - per_modality: dict modality -> {'required': set[str], 'optional': set[str]}
+
+    Notes:
+    - This function is heuristic and tuned for the U19 templates in schema.py.
+      Adjust as your ingestion scripts evolve.
+    """
+    # Core NWBFile fields: allow either template label or canonical NWB label
+    core_any: List[Set[str]] = [
+        {"session_description"},
+        {"identifier"},
+        {"session_start_time", "session_start_time(YYYY-MM-DD HH:MM)"},
+    ]
+
+    # Subject: minimally require these, plus at least one of age or date_of_birth
+    subject_all: Set[str] = {"subject_id", "species", "sex"}
+    subject_any_one_of: List[Set[str]] = [{"age", "date_of_birth(YYYY-MM-DD)"}]
+
+    # Per-modality minima (heuristics for constructing NWB objects)
+    per_modality: Dict[str, Dict[str, Set[str]]] = {
+        "Electrophysiology": {
+            # Needed to create Device + ElectrodeGroup + infer channel table shape
+            "required": {"ephys_acq_system", "sampling_rate_hz", "num_channels", "reference_scheme"},
+            "optional": {"probe_model"},
+        },
+        "Behavior tracking": {
+            # Needed to create ImageSeries/Video with correct timing
+            "required": {"behavior_modality", "frame_rate_fps"},
+            "optional": {"camera_count", "tracking_software"},
+        },
+        "Optogenetics": {
+            # Needed to define opto Device and basic stimulation parameters
+            "required": {"opto_device_model", "stimulation_wavelength_nm"},
+            "optional": {"stimulation_power_mw", "stimulation_protocol"},
+        },
+        "Miniscope imaging": {
+            # Needed to create Device and ImageSeries with correct rate
+            "required": {"miniscope_model", "imaging_frame_rate_fps"},
+            "optional": {"field_of_view_um", "imaging_indicator"},
+        },
+        "Fiber photometry": {
+            # Needed to create Device and Timeseries with rate
+            "required": {"fp_device_model", "sampling_rate_hz", "excitation_wavelength_nm"},
+            "optional": {"emission_wavelength_nm"},
+        },
+        "2p imaging": {
+            # Needed to create Device/OpticalChannel and TwoPhotonSeries
+            "required": {"two_photon_microscope", "imaging_frame_rate_fps", "laser_wavelength_nm"},
+            "optional": {"objective_magnification", "numerical_aperture"},
+        },
+        "Widefield imaging": {
+            # Needed to create Device and ImageSeries with correct rate
+            "required": {"widefield_system", "imaging_frame_rate_fps"},
+            "optional": {"illumination_wavelength_nm", "camera_model"},
+        },
+        "EEG recordings": {
+            # Needed to create Device/ElectrodeGroup with montage and rate
+            "required": {"eeg_system", "sampling_rate_hz", "montage", "reference_scheme"},
+            "optional": set(),
+        },
+    }
+
+    # Keep only modalities selected
+    selected_modalities = {
+        m: per_modality[m]
+        for m in experiment_types
+        if m in per_modality
+    }
+
+    return {
+        "core_any": core_any,
+        "subject_all": subject_all,
+        "subject_any_one_of": subject_any_one_of,
+        "per_modality": selected_modalities,
+    }
+
+
+def check_template_columns(columns: List[str], experiment_types: List[str]) -> Dict[str, Any]:
+    """Check if a list of template column names meets minimum requirements.
+
+    Returns a dict with:
+    - ok: bool
+    - missing_core: List[str] (human-readable requirement labels)
+    - missing_subject: List[str]
+    - missing_by_modality: Dict[modality, List[str]]
+    - summary: str short description
+    """
+    req = get_minimum_template_requirements(experiment_types)
+    cols_set = set(columns)
+
+    # Core: at least one of each group in core_any must be present
+    missing_core: List[str] = []
+    for group in req["core_any"]:
+        if not (group & cols_set):
+            missing_core.append(" or ".join(sorted(group)))
+
+    # Subject
+    missing_subject: List[str] = [f for f in sorted(req["subject_all"]) if f not in cols_set]
+    # at least one of each group
+    for group in req["subject_any_one_of"]:
+        if not (group & cols_set):
+            missing_subject.append(" or ".join(sorted(group)))
+
+    # Modalities
+    missing_by_modality: Dict[str, List[str]] = {}
+    for modality, parts in req["per_modality"].items():
+        missing = [f for f in sorted(parts["required"]) if f not in cols_set]
+        if missing:
+            missing_by_modality[modality] = missing
+
+    ok = not (missing_core or missing_subject or missing_by_modality)
+    summary = (
+        "All minimum template fields present"
+        if ok
+        else "Missing required fields for NWB mapping"
+    )
+
+    return {
+        "ok": ok,
+        "missing_core": missing_core,
+        "missing_subject": missing_subject,
+        "missing_by_modality": missing_by_modality,
+        "summary": summary,
+    }
 
 
 def run_pynwb_validation(path: str) -> Dict[str, Any]:
@@ -60,7 +199,7 @@ def run_pynwb_validation(path: str) -> Dict[str, Any]:
         }
 
 
-def run_nwb_inspector(path: str) -> Dict[str, Any]:
+def run_nwb_inspector(path: str, *, config_path: str | None = None, config_text: str | None = None) -> Dict[str, Any]:
     """Run NWB Inspector best-practice checks on a file.
 
     Returns a dict with keys:
@@ -82,7 +221,52 @@ def run_nwb_inspector(path: str) -> Dict[str, Any]:
             except Exception:
                 return {"status": "missing"}
 
-        messages = inspect_nwb(path)  # type: ignore
+        # Try to load a user-provided config if any
+        inspector_config = None
+        if config_text or config_path:
+            try:
+                # Prefer Inspector's own loader if available
+                try:
+                    # Some versions expose load_config from top-level; others under utils/config
+                    try:
+                        from nwbinspector import load_config  # type: ignore
+                    except Exception:
+                        try:
+                            from nwbinspector.utils import load_config  # type: ignore
+                        except Exception:
+                            load_config = None  # type: ignore
+                except Exception:
+                    load_config = None  # type: ignore
+
+                if config_text and load_config is not None:
+                    inspector_config = load_config(config_text)  # type: ignore[arg-type]
+                elif config_path and load_config is not None:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        inspector_config = load_config(f.read())  # type: ignore[arg-type]
+                else:
+                    # Fallback: parse YAML and pass dict directly
+                    try:
+                        import yaml  # type: ignore
+
+                        if config_text is None and config_path is not None:
+                            with open(config_path, "r", encoding="utf-8") as f:
+                                config_text = f.read()
+                        if config_text is not None:
+                            inspector_config = yaml.safe_load(config_text)
+                    except Exception:
+                        inspector_config = None
+            except Exception:
+                inspector_config = None
+
+        # Call inspector with or without config depending on support
+        try:
+            if inspector_config is not None:
+                messages = inspect_nwb(path, config=inspector_config)  # type: ignore
+            else:
+                messages = inspect_nwb(path)  # type: ignore
+        except TypeError:
+            # Older versions may not support config kwarg
+            messages = inspect_nwb(path)  # type: ignore
 
         simplified: List[Dict[str, Any]] = []
         sev_counter: Counter = Counter()

@@ -14,6 +14,7 @@ from data_bundling_ui.export import build_workbook_bytes, build_csv_bytes
 from data_bundling_ui.validation import (
     run_pynwb_validation,
     run_nwb_inspector,
+    check_template_columns,
 )
 
 
@@ -167,6 +168,21 @@ def main() -> None:
 
             final_fields = user_fields + [f for f in auto_fields if f not in user_fields]
 
+            # Minimal completeness check for NWB mapping
+            chk = check_template_columns(final_fields, exp_types)
+            st.subheader("Template Completeness Check")
+            if chk.get("ok"):
+                st.success("Minimum template fields present for NWB mapping.")
+            else:
+                st.warning("Missing required fields:")
+                if chk.get("missing_core"):
+                    st.write("- Core NWBFile: missing " + ", ".join(chk["missing_core"]))
+                if chk.get("missing_subject"):
+                    st.write("- Subject: missing " + ", ".join(chk["missing_subject"]))
+                miss_mod = chk.get("missing_by_modality", {})
+                for mod, missing in miss_mod.items():
+                    st.write(f"- {mod}: missing " + ", ".join(missing))
+
             st.subheader("Download Template")
             bytes_xlsx = None
             bytes_csv = None
@@ -287,6 +303,14 @@ def main() -> None:
         )
 
         uploaded = st.file_uploader("NWB file", type=["nwb"]) 
+        config_upload = st.file_uploader("Optional: NWB Inspector config (YAML)", type=["yml", "yaml"], key="inspector_cfg")
+        cfg_text: str | None = None
+        if config_upload is not None:
+            try:
+                cfg_text = config_upload.getvalue().decode("utf-8", errors="ignore")
+                st.caption("Inspector config loaded.")
+            except Exception:
+                st.warning("Could not read config; proceeding without it.")
         if uploaded is not None:
             import tempfile
 
@@ -308,7 +332,7 @@ def main() -> None:
                         st.code("\n".join(vres["errors"])[:4000])
 
                 st.write("Running NWB Inspector…")
-                ires = run_nwb_inspector(tmp_path)
+                ires = run_nwb_inspector(tmp_path, config_text=cfg_text)
                 if ires.get("status") == "missing":
                     st.warning("nwbinspector not installed; skipping Inspector checks.")
                 else:
