@@ -37,10 +37,15 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
 
     # Per-modality minima (heuristics for constructing NWB objects)
     per_modality: Dict[str, Dict[str, Set[str]]] = {
-        "Electrophysiology": {
+        "Electrophysiology – Extracellular": {
             # Needed to create Device + ElectrodeGroup + infer channel table shape
             "required": {"ephys_acq_system", "sampling_rate_hz", "num_channels", "reference_scheme"},
-            "optional": {"probe_model"},
+            "optional": {"probe_model", "montage"},
+        },
+        "Electrophysiology – Intracellular": {
+            # Needed to create Device/ICEphys series with proper rates and identifiers
+            "required": {"icephys_setup", "recording_mode", "sampling_rate_hz"},
+            "optional": {"cell_id", "electrode_name"},
         },
         "Behavior tracking": {
             # Needed to create ImageSeries/Video with correct timing
@@ -80,11 +85,7 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
     }
 
     # Keep only modalities selected
-    selected_modalities = {
-        m: per_modality[m]
-        for m in experiment_types
-        if m in per_modality
-    }
+    selected_modalities = {m: per_modality[m] for m in experiment_types if m in per_modality}
 
     return {
         "core_any": core_any,

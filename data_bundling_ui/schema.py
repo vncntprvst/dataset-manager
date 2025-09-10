@@ -84,12 +84,21 @@ The UI and validation code treat these fields as a proxy layer so that:
 
 # Per experiment-type extra fields (extend as needed)
 EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
-    "Electrophysiology": [
+    "Electrophysiology – Extracellular": [
         "ephys_acq_system",
         "sampling_rate_hz",
         "num_channels",
         "probe_model",
         "reference_scheme",
+        # EEG/EMG folded into extracellular; include montage when applicable
+        "montage",
+    ],
+    "Electrophysiology – Intracellular": [
+        "icephys_setup",
+        "recording_mode",  # e.g., current-clamp, voltage-clamp
+        "sampling_rate_hz",
+        "cell_id",
+        "electrode_name",
     ],
     "Behavior tracking": [
         "behavior_modality",
@@ -128,11 +137,16 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "camera_model",
         "imaging_frame_rate_fps",
     ],
-    "EEG recordings": [
-        "eeg_system",
-        "sampling_rate_hz",
-        "montage",
-        "reference_scheme",
+    # Additional organizational/annotation types
+    "Experimental metadata": [
+        "device_name",
+        "device_description",
+        "device_manufacturer",
+        "protocol",
+        "experiment_notes",
+    ],
+    "Notes": [
+        "notes",
     ],
 }
 

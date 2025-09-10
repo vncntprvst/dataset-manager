@@ -1,10 +1,9 @@
 streamlit>=1.36
-# Optional, used if available for .xlsx export
 pandas>=2.0
 openpyxl>=3.1
 xlsxwriter>=3.1
-# Optional, used if available for schema extraction
 pynwb>=2.5
 dandischema>=0.9
-# Optional, used if available for best-practice checks
 nwbinspector>=0.5
+neuroconv
+

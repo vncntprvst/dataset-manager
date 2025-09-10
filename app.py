@@ -1,7 +1,7 @@
 import io
 import os
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Tuple, Set
 
 import streamlit as st
 
@@ -25,17 +25,398 @@ def _set_mode(new_mode: str):
     st.session_state["mode"] = new_mode
 
 
-SUBTYPES: Dict[str, List[str]] = {
-    "Electrophysiology": ["Neuropixels", "Silicon probes", "Single electrode", "Tetrodes", "Patch-clamp"],
-    "Behavior tracking": ["Video", "Analog measurement", "Other"],
-    "Optogenetics": [],
-    "Miniscope imaging": ["Miniscope V4", "UCLA Miniscope", "Other"],
-    "Fiber photometry": ["Doric", "Other"],
-    "2p imaging": ["Resonant", "Galvo", "Other"],
-    "Widefield imaging": ["sCMOS", "Other"],
-    "EEG recordings": [],
-    "Notes": []
-}
+def _neuroconv_ecephys_acq_types() -> List[str]:
+    """Best-effort retrieval of Extracellular acquisition types from NeuroConv.
+
+    Inspects neuroconv.datainterfaces.ecephys for available acquisition system modules.
+    Returns vendor/source names like 'Blackrock', 'SpikeGLX', 'OpenEphys'.
+    """
+    try:
+        import inspect  # type: ignore
+        from neuroconv.datainterfaces import ecephys as nwb_ecephys  # type: ignore
+
+        acq: Set[str] = set()
+        # Get module names that represent acquisition systems
+        for name, obj in inspect.getmembers(nwb_ecephys):
+            # Skip special attributes and base classes
+            if name.startswith('_') or name.startswith('base'):
+                continue
+            # Check if it's a module (subpackage) representing an acquisition system
+            if inspect.ismodule(obj) and hasattr(obj, '__path__'):
+                # Capitalize first letter for display
+                display_name = name.capitalize()
+                # Handle special cases for better readability
+                if name == 'spikeglx':
+                    display_name = 'SpikeGLX'
+                elif name == 'openephys':
+                    display_name = 'OpenEphys'
+                elif name == 'neuralynx':
+                    display_name = 'Neuralynx'
+                elif name == 'whitematter':
+                    display_name = 'White Matter'
+                elif name == 'alphaomega':
+                    display_name = 'AlphaOmega'
+                elif name == 'spikegadgets':
+                    display_name = 'SpikeGadgets'
+                elif name == 'mcsraw':
+                    display_name = 'MCS Raw'
+                elif name == 'edf':
+                    display_name = 'EDF'
+                elif name == 'tdt':
+                    display_name = 'TDT'
+                acq.add(display_name)
+        
+        return sorted(acq) if acq else []
+    except Exception:
+        return []
+
+
+def _intracellular_acq_types() -> List[str]:
+    """Best-effort retrieval of Intracellular acquisition types from NeuroConv.
+
+    Inspects neuroconv.datainterfaces.icephys for available intracellular interfaces.
+    Returns patch-clamp technique names like 'Axon', 'HEKA', etc.
+    """
+    try:
+        import inspect  # type: ignore
+        from neuroconv.datainterfaces import icephys as nwb_icephys  # type: ignore
+
+        acq: Set[str] = set()
+        # Get available interfaces
+        for name, obj in inspect.getmembers(nwb_icephys):
+            # Skip special attributes and base classes
+            if name.startswith('_') or name.lower().startswith('base'):
+                continue
+            # Look for interface classes
+            if inspect.isclass(obj) and "Interface" in name:
+                # Extract the acquisition system name
+                base = name.replace("RecordingInterface", "").replace("Interface", "")
+                if base and base not in ["Base"]:
+                    # Handle special cases for better readability
+                    if base.lower() == "axon":
+                        acq.add("Axon Instruments")
+                    elif base.lower() == "heka":
+                        acq.add("HEKA")
+                    else:
+                        acq.add(base)
+        
+        return sorted(acq) if acq else []
+    except Exception:
+        pass
+    # Fallback to common intracellular techniques
+    return ["Patch-clamp", "Current clamp", "Voltage clamp", "Whole-cell", "Cell-attached"]
+
+
+def _default_acq_types() -> Dict[str, List[str]]:
+    return {
+        "Electrophysiology – Extracellular": _neuroconv_ecephys_acq_types() or [
+            "Blackrock",
+            "SpikeGLX",
+            "OpenEphys",
+            "Intan",
+            "Neuralynx",
+            "Plexon",
+            "TDT",
+        ],
+        "Electrophysiology – Intracellular": _intracellular_acq_types(),
+        "Behavior tracking": ["Video", "Analog measurement", "Other"],
+        "Optogenetics": ["Stimulation"],
+        "Miniscope imaging": ["Miniscope V4", "UCLA Miniscope", "Other"],
+        "Fiber photometry": ["Doric", "Other"],
+        "2p imaging": ["Resonant", "Galvo", "Other"],
+        "Widefield imaging": ["sCMOS", "Other"],
+        "Experimental metadata": ["General"],
+        "Notes": ["General"],
+    }
+
+
+def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) -> List[Dict[str, str]]:
+    """Build suggested Raw data formats rows based on selected experimental types and acquisition types."""
+    suggestions: List[Dict[str, str]] = []
+
+    # Enhanced format hints for extracellular vendors based on NeuroConv documentation
+    # NOTE: Only raw recording formats, no processed/sorted data
+    ecephys_formats = {
+        "Blackrock": "Blackrock `.nsx`, `.ccf`, `.nev` files",
+        "SpikeGLX": "SpikeGLX `.bin`, `.meta` files (Neuropixels)",
+        "OpenEphys": "OpenEphys `.continuous`, `.events`, `.spikes` or `.dat`, `.oebin`",
+        "Intan": "Intan `.rhd` / `.rhs` files",
+        "Neuralynx": "Neuralynx `.ncs`, `.nev`, `.nse`, `.ntt` files", 
+        "Plexon": "Plexon `.pl2` / `.plx` files",
+        "TDT": "TDT tank files (`.tbk`, `.tev`, `.tsq`, `.sev`)",
+        "EDF": "European Data Format `.edf` files",
+        "White Matter": "White Matter binary `.bin` files",
+        "Spike2": "Spike2 `.smr` / `.smrx` files",
+        "AlphaOmega": "AlphaOmega `.mpx` files",
+        "Spikegadgets": "SpikeGadgets `.rec` files",
+        "Axon": "Axon Binary Format `.abf` files",
+        "Axona": "Axona `.bin`, `.set` files",
+        "Biocam": "Biocam `.bwr` files", 
+        "Cellexplorer": "CellExplorer `.dat`, `.session.mat` files",
+        "Maxwell": "Maxwell `.raw.h5` files",
+        "Mearec": "MEArec `.h5` files",
+        "Neuroscope": "NeuroScope `.dat`, `.xml` files",
+        "Mcsraw": "MCS Raw files",
+    }
+
+    # Intracellular format hints
+    icephys_formats = {
+        "Axon Instruments": "Axon Binary Format `.abf` files",
+        "HEKA": "HEKA binary `.dat` files",
+        "Patch-clamp": "ABF, HDF5, or custom patch-clamp files",
+        "Current clamp": "Current clamp recording files",
+        "Voltage clamp": "Voltage clamp recording files", 
+        "Whole-cell": "Whole-cell patch recording files",
+        "Cell-attached": "Cell-attached recording files",
+    }
+
+    for et in exp_types:
+        acqs = acq_map.get(et, [])
+        if et.startswith("Electrophysiology – Extracellular"):
+            for a in acqs or ["Unknown vendor"]:
+                fmt = ecephys_formats.get(a, f"{a} electrophysiology files")
+                suggestions.append({
+                    "Data type": f"Extracellular ephys – {a}",
+                    "Format": fmt,
+                })
+        elif et.startswith("Electrophysiology – Intracellular"):
+            for a in acqs or ["Patch-clamp"]:
+                fmt = icephys_formats.get(a, "Intracellular recording files")
+                suggestions.append({
+                    "Data type": f"Intracellular ephys – {a}",
+                    "Format": fmt,
+                })
+        elif et == "Behavior tracking":
+            for a in acqs or ["Video"]:
+                if a.lower().startswith("video"):
+                    suggestions.append({
+                        "Data type": "Behavior videos",
+                        "Format": "MP4/MPEG/AVI videos with timestamps",
+                    })
+                elif a.lower() == "analog measurement":
+                    suggestions.append({
+                        "Data type": "Behavior analog sensors",
+                        "Format": "CSV/MAT/DAT time series data",
+                    })
+                else:
+                    suggestions.append({
+                        "Data type": f"Behavior tracking – {a}",
+                        "Format": "Digital/analog behavioral data",
+                    })
+        elif et == "Optogenetics":
+            suggestions.append({
+                "Data type": "Optogenetic stimulation protocols",
+                "Format": "Stimulation parameters in CSV/JSON/MAT files"
+            })
+            suggestions.append({
+                "Data type": "Optogenetic device settings", 
+                "Format": "Laser/LED parameters and timing files"
+            })
+        elif et == "Miniscope imaging":
+            suggestions.append({
+                "Data type": "Miniscope imaging", 
+                "Format": "Raw `.avi`/`.mp4` videos with timestamp files"
+            })
+            suggestions.append({
+                "Data type": "Miniscope metadata",
+                "Format": "Camera settings and calibration files"
+            })
+        elif et == "Fiber photometry":
+            suggestions.append({
+                "Data type": "Fiber photometry signals", 
+                "Format": "Time-series CSV/MAT with fluorescence data"
+            })
+            suggestions.append({
+                "Data type": "Photometry hardware settings",
+                "Format": "Excitation/emission wavelength parameters"
+            })
+        elif et == "2p imaging":
+            suggestions.append({
+                "Data type": "Two-photon imaging", 
+                "Format": "TIFF stacks/HDF5 with acquisition metadata"
+            })
+            suggestions.append({
+                "Data type": "2p microscope settings",
+                "Format": "Laser power, objective, and timing parameters"
+            })
+        elif et == "Widefield imaging":
+            suggestions.append({
+                "Data type": "Widefield imaging", 
+                "Format": "TIFF stacks/videos with illumination metadata"
+            })
+        elif et == "Experimental metadata":
+            suggestions.append({
+                "Data type": "Experimental protocols", 
+                "Format": "Experimental design and procedure files"
+            })
+            suggestions.append({
+                "Data type": "Session metadata", 
+                "Format": "`SessionTable.xlsx`, `.json` metadata files"
+            })
+        elif et == "Notes":
+            suggestions.append({
+                "Data type": "Experimental notes", 
+                "Format": "Markdown, text, or PDF documentation"
+            })
+
+    # Always include task parameters as a hint if ephys is selected
+    if any(et.startswith("Electrophysiology") for et in exp_types):
+        suggestions.append({
+            "Data type": "Task/stimulus parameters",
+            "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
+        })
+
+    # Add common analysis outputs if multiple modalities selected
+    if len(exp_types) > 1:
+        suggestions.append({
+            "Data type": "Cross-modal synchronization",
+            "Format": "Timing/trigger files for multi-modal alignment",
+        })
+
+    # Deduplicate while preserving order
+    seen: Set[Tuple[str, str]] = set()
+    dedup: List[Dict[str, str]] = []
+    for row in suggestions:
+        key = (row.get("Data type", ""), row.get("Format", ""))
+        if key not in seen:
+            seen.add(key)
+            dedup.append(row)
+    return dedup
+
+
+def _suggest_processed_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) -> List[Dict[str, str]]:
+    """Build suggested processed data formats for future-proofing.
+    
+    These are outputs from analysis pipelines, not raw acquisition data.
+    """
+    suggestions: List[Dict[str, str]] = []
+
+    # Spike sorting outputs
+    sorting_formats = {
+        "Phy": "Phy sorting `.npy` files (spike times, clusters)",
+        "Kilosort": "KiloSort output `.npy` files (templates, spike times)",
+        "SpyKing Circus": "Spike sorting results and cluster data",
+        "MountainSort": "MountainSort spike sorting outputs",
+        "Tridesclous": "Tridesclous spike sorting results",
+    }
+
+    # Analysis outputs by modality
+    for et in exp_types:
+        if et.startswith("Electrophysiology – Extracellular"):
+            # Add spike sorting suggestions
+            suggestions.extend([
+                {"Data type": "Spike sorting - Phy", "Format": sorting_formats["Phy"]},
+                {"Data type": "Spike sorting - KiloSort", "Format": sorting_formats["Kilosort"]},
+                {"Data type": "LFP analysis", "Format": "Processed LFP spectrograms, power spectra"},
+                {"Data type": "Spike train analysis", "Format": "PSTH, raster plots, firing rate data"},
+            ])
+        elif et.startswith("Electrophysiology – Intracellular"):
+            suggestions.extend([
+                {"Data type": "Patch-clamp analysis", "Format": "IV curves, membrane properties"},
+                {"Data type": "Synaptic analysis", "Format": "EPSCs, IPSCs, paired-pulse ratios"},
+            ])
+        elif et == "Behavior tracking":
+            suggestions.extend([
+                {"Data type": "Position tracking", "Format": "Extracted animal positions and trajectories"},
+                {"Data type": "Behavioral scoring", "Format": "Automated behavior classification results"},
+            ])
+        elif et == "2p imaging":
+            suggestions.extend([
+                {"Data type": "Motion correction", "Format": "Motion-corrected imaging stacks"},
+                {"Data type": "ROI segmentation", "Format": "Cell masks and fluorescence traces"},
+                {"Data type": "dF/F analysis", "Format": "Calcium signal analysis and statistics"},
+            ])
+        elif et == "Miniscope imaging":
+            suggestions.extend([
+                {"Data type": "Miniscope analysis", "Format": "Cell identification and calcium traces"},
+                {"Data type": "Place cell analysis", "Format": "Spatial firing maps and statistics"},
+            ])
+        elif et == "Fiber photometry":
+            suggestions.extend([
+                {"Data type": "Photometry analysis", "Format": "Processed fluorescence signals and events"},
+            ])
+        elif et == "Widefield imaging":
+            suggestions.extend([
+                {"Data type": "Widefield analysis", "Format": "Hemodynamic response maps and time series"},
+            ])
+
+    # Cross-modal analysis suggestions
+    if len([et for et in exp_types if et.startswith("Electrophysiology")]) > 0 and \
+       len([et for et in exp_types if "imaging" in et.lower()]) > 0:
+        suggestions.append({
+            "Data type": "Multi-modal analysis",
+            "Format": "Electrophysiology-imaging correlation analysis"
+        })
+
+    # Deduplicate while preserving order
+    seen: Set[Tuple[str, str]] = set()
+    dedup: List[Dict[str, str]] = []
+    for row in suggestions:
+        key = (row.get("Data type", ""), row.get("Format", ""))
+        if key not in seen:
+            seen.add(key)
+            dedup.append(row)
+    return dedup
+
+
+def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -> str:
+    """Construct a folder tree with nodes based on selected experiment types and data formats."""
+    children: List[str] = []
+
+    has_video = any(
+        (row.get("Data type", "") + " " + row.get("Format", "")).lower().find("video") >= 0
+        for row in data_formats
+    )
+
+    if any(et.startswith("Electrophysiology") for et in exp_types):
+        children.append("raw_ephys_data")
+    if "Behavior tracking" in exp_types and has_video:
+        children.append("raw_behavior_video")
+    if "2p imaging" in exp_types:
+        children.append("raw_imaging_2p")
+    if "Miniscope imaging" in exp_types:
+        children.append("raw_imaging_miniscope")
+    if "Widefield imaging" in exp_types:
+        children.append("raw_imaging_widefield")
+    if "Fiber photometry" in exp_types:
+        children.append("raw_photometry_data")
+    if "Optogenetics" in exp_types:
+        children.append("opto_stim_settings")
+    if "Experimental metadata" in exp_types:
+        children.append("metadata")
+    if "Notes" in exp_types:
+        children.append("notes")
+
+    # Always include processed data placeholder
+    children.extend(["processed_data"]) #"task_data",
+
+    # Unique and stable order
+    ordered: List[str] = []
+    for name in [
+        "raw_ephys_data",
+        "raw_behavior_video",
+        "raw_imaging_2p",
+        "raw_imaging_miniscope",
+        "raw_imaging_widefield",
+        "raw_photometry_data",
+        "opto_stim_settings",
+        "metadata",
+        "notes",
+        "task_data",
+        "processed_data",
+    ]:
+        if name in children and name not in ordered:
+            ordered.append(name)
+
+    tree = (
+        "Subject\n"
+        "├── YYYY_MM_DD\n"
+        "│   ├── SUBJECT_SESSION_ID\n"
+    )
+    for i, c in enumerate(ordered):
+        connector = "│   │   ├── " if i < len(ordered) - 1 else "│   │   └── "
+        tree += connector + c + "\n"
+    return tree
 
 def _example_formats_df() -> List[Dict[str, str]]:
     return [
@@ -68,24 +449,31 @@ def main() -> None:
         st.header("Project description")
         st.write("Describe your project organization and data formats.")
 
-        # Experimental types and subtypes
+        # Experimental types and acquisition types
         exp_types = st.multiselect(
             "Experimental types",
             options=get_supported_experiment_types(),
             default=[],
         )
 
-        selected_subtypes: Dict[str, List[str]] = {}
+        # Build acquisition type options per selected experiment type
+        ACQ_OPTIONS = _default_acq_types()
+        selected_acq: Dict[str, List[str]] = {}
         for et in exp_types:
-            subtypes = st.multiselect(
-                f"Subtypes – {et}", options=SUBTYPES.get(et, ["Other"]), default=[]
+            opts = ACQ_OPTIONS.get(et, ["Other"])
+            acq = st.multiselect(
+                f"Acquisition type – {et}", options=opts, default=[], key=f"acq_{et}"
             )
-            selected_subtypes[et] = subtypes
+            selected_acq[et] = acq
 
         st.subheader("Raw data formats")
         st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
-        if "data_formats_rows" not in st.session_state:
-            st.session_state["data_formats_rows"] = _example_formats_df()
+        # Build dynamic suggestions based on current selection
+        signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
+        last_sig = st.session_state.get("_formats_signature")
+        if "data_formats_rows" not in st.session_state or signature != last_sig:
+            st.session_state["data_formats_rows"] = _suggest_raw_formats(exp_types, selected_acq)
+            st.session_state["_formats_signature"] = signature
         data_formats = st.data_editor(
             st.session_state["data_formats_rows"],
             hide_index=True,
@@ -100,17 +488,9 @@ def main() -> None:
 
         st.subheader("Data organization")
         st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
-        if "data_org_tree" not in st.session_state:
-            st.session_state["data_org_tree"] = (
-                "Subject\n"
-                "├── YYYY_MM_DD\n"
-                "│   ├── SUBJECT_SESSION_ID\n"
-                "│   │   ├── raw_ephys_data\n"
-                "│   │   ├── raw_video_data\n"
-                "│   │   ├── task_data\n"
-                "│   │   └── processed_data\n"
-            )
-        tree_text = st.text_area("Tree editor", value=st.session_state["data_org_tree"], height=240, key="tree_editor")
+        # Regenerate tree dynamically from current selections
+        current_tree = _build_tree_text(exp_types, data_formats)
+        tree_text = st.text_area("Tree editor", value=current_tree, height=240, key="tree_editor")
         st.session_state["data_org_tree"] = tree_text
         st.caption("Preview")
         st.code(tree_text)
