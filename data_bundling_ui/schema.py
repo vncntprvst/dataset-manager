@@ -145,7 +145,19 @@ def _try_import_nwb_fields() -> List[str] | None:
     try:
         from pynwb.file import NWBFile
 
-        # Known required args for NWBFile constructor
+        # Extract required arguments dynamically from PyNWB's docval metadata
+        if hasattr(NWBFile.__init__, '__docval__'):
+            docval_info = NWBFile.__init__.__docval__
+            if 'args' in docval_info:
+                # Extract required arguments (those without 'default' key)
+                required = []
+                for arg in docval_info['args']:
+                    name = arg.get('name')
+                    if name and 'default' not in arg:
+                        required.append(name)
+                return required if required else None
+
+        # Fallback to known required args if docval metadata isn't available
         required = [
             "session_description",
             "identifier",
