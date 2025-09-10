@@ -25,7 +25,7 @@ def _set_mode(new_mode: str):
     st.session_state["mode"] = new_mode
 
 
-def _neuroconv_ecephys_acq_types() -> List[str]:
+def _ecephys_acq_types() -> List[str]:
     """Best-effort retrieval of Extracellular acquisition types from NeuroConv.
 
     Inspects neuroconv.datainterfaces.ecephys for available acquisition system modules.
@@ -110,7 +110,7 @@ def _intracellular_acq_types() -> List[str]:
 def _ophys_acq_types() -> List[str]:
     """Retrieve Optical Physiology acquisition types from NeuroConv when available.
 
-    Scans neuroconv.datainterfaces.ophys for classes containing 'Imaging'.
+    Inspects neuroconv.datainterfaces.ophys for available optical physiology modules.
     Returns vendor/source names like 'Tiff', 'Bruker', 'ScanImage', 'Miniscope'.
     """
     try:
@@ -118,18 +118,97 @@ def _ophys_acq_types() -> List[str]:
         from neuroconv.datainterfaces import ophys as nwb_ophys  # type: ignore
 
         acq: Set[str] = set()
+        # Get module names that represent optical physiology systems
         for name, obj in inspect.getmembers(nwb_ophys):
-            if inspect.isclass(obj) and "Imaging" in name and "Segmentation" not in name:
-                base = name.split("Imaging", 1)[0]
-                base = base.replace("Interface", "").strip()
-                if base:
-                    acq.add(base)
-        if acq:
-            return sorted(acq)
+            # Skip special attributes and base classes
+            if name.startswith('_') or name.startswith('base'):
+                continue
+            # Check if it's a module (subpackage) representing an optical system
+            if inspect.ismodule(obj) and hasattr(obj, '__path__'):
+                # Create display name with proper capitalization
+                display_name = name.capitalize()
+                # Handle special cases for better readability
+                if name == 'brukertiff':
+                    display_name = 'Bruker'
+                elif name == 'scanimage':
+                    display_name = 'ScanImage'
+                elif name == 'miniscope':
+                    display_name = 'Miniscope'
+                elif name == 'micromanagertiff':
+                    display_name = 'MicroManager'
+                elif name == 'inscopix':
+                    display_name = 'Inscopix'
+                elif name == 'femtonics':
+                    display_name = 'Femtonics'
+                elif name == 'tdt_fp':
+                    display_name = 'TDT Fiber Photometry'
+                elif name == 'sbx':
+                    display_name = 'Scanbox'
+                elif name == 'thor':
+                    display_name = 'ThorLabs'
+                elif name == 'tiff':
+                    display_name = 'TIFF'
+                elif name == 'hdf5':
+                    display_name = 'HDF5'
+                elif name in ['extract', 'cnmfe', 'cnmf', 'suite2p', 'caiman', 'sima']:
+                    # Skip processed data modules
+                    continue
+                acq.add(display_name)
+        
+        return sorted(acq) if acq else []
     except Exception:
         pass
-    return ["Tiff", "Bruker", "ScanImage", "Miniscope", "Widefield", "Photometry"]
+    return ["TIFF", "Bruker", "ScanImage", "Miniscope", "ThorLabs", "Inscopix"]
 
+def _behavior_acq_types() -> List[str]:
+    """Retrieval of Behavioral acquisition types from NeuroConv.
+
+    Inspects neuroconv.datainterfaces.behavior for available acquisition system modules.
+    """
+    try:
+        import inspect  # type: ignore
+        from neuroconv.datainterfaces import behavior as nwb_behavior  # type: ignore
+
+        acq: Set[str] = set()
+        # Get module names that represent acquisition systems
+        for name, obj in inspect.getmembers(nwb_behavior):
+            # Skip special attributes and base classes
+            if name.startswith('_') or name.startswith('base'):
+                continue
+            # Check if it's a module (subpackage) representing an acquisition system
+            if inspect.ismodule(obj) and hasattr(obj, '__path__'):
+                # Handle special cases to map to desired output format
+                if name == 'video':
+                    acq.add("Video")
+                elif name == 'audio':
+                    acq.add("Audio")
+                elif name == 'medpc':
+                    acq.add("MedPC")
+                elif name in ['deeplabcut', 'sleap', 'neuralynx']:
+                    if name == 'neuralynx':
+                        acq.add("Neuralynx NVT")
+                    else:
+                        acq.add("Real-time tracking")
+                elif name == 'fictrac':
+                    acq.add("FicTrac")
+                elif name == 'lightningpose':
+                    # Lightning Pose is only for offline tracking data processing
+                    continue
+                elif name == 'miniscope':
+                    acq.add("Miniscope Inertial Measurement Unit (IMU)")
+                else:
+                    # For any other modules, add as-is with capitalization
+                    acq.add(name.capitalize())
+        
+        # Add standard analog measurement option
+        acq.add("Analog measurement")
+        acq.add("Other")
+        
+        return sorted(acq) if acq else []
+    except Exception:
+        pass
+    # Fallback to desired output list
+    return ["Video", "Audio", "Analog measurement", "MedPC", "Neuralynx NVT", "Real-time tracking", "Other"]
 
 def _acq_options() -> Dict[str, List[str]]:
     """Unified acquisition type options per experiment type.
@@ -137,7 +216,7 @@ def _acq_options() -> Dict[str, List[str]]:
     Combines electrophysiology split and optical physiology category.
     """
     return {
-        "Electrophysiology – Extracellular": _neuroconv_ecephys_acq_types() or [
+        "Electrophysiology – Extracellular": _ecephys_acq_types() or [
             "Blackrock",
             "SpikeGLX",
             "OpenEphys",
@@ -148,15 +227,15 @@ def _acq_options() -> Dict[str, List[str]]:
         ],
         "Electrophysiology – Intracellular": _intracellular_acq_types(),
         "Optical Physiology": _ophys_acq_types(),
-        "Behavior tracking": ["Video", "Analog measurement", "Other"],
-        "Optogenetics": ["Stimulation"],
+        "Behavior measurements": _behavior_acq_types(),
+        "Task/stimulus parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
         "Experimental metadata and notes": ["General"],
     }
 
 
 def _default_acq_types() -> Dict[str, List[str]]:
     return {
-        "Electrophysiology – Extracellular": _neuroconv_ecephys_acq_types() or [
+        "Electrophysiology – Extracellular": _ecephys_acq_types() or [
             "Blackrock",
             "SpikeGLX",
             "OpenEphys",
@@ -186,13 +265,13 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
     ecephys_formats = {
         "Blackrock": "Blackrock `.nsx`, `.ccf`, `.nev` files",
         "SpikeGLX": "SpikeGLX `.bin`, `.meta` files (Neuropixels)",
-        "OpenEphys": "OpenEphys `.continuous`, `.events`, `.spikes` or `.dat`, `.oebin`",
+        "OpenEphys": "OpenEphys `.dat`, `.npy`, `.json` or `.continuous`, `.events`, `.spikes` or `.nwb`",
         "Intan": "Intan `.rhd` / `.rhs` files",
         "Neuralynx": "Neuralynx `.ncs`, `.nev`, `.nse`, `.ntt` files", 
         "Plexon": "Plexon `.pl2` / `.plx` files",
         "TDT": "TDT tank files (`.tbk`, `.tev`, `.tsq`, `.sev`)",
         "EDF": "European Data Format `.edf` files",
-        "White Matter": "White Matter binary `.bin` files",
+        "White Matter": "White Matter `.bin` files",
         "Spike2": "Spike2 `.smr` / `.smrx` files",
         "AlphaOmega": "AlphaOmega `.mpx` files",
         "Spikegadgets": "SpikeGadgets `.rec` files",
@@ -220,7 +299,7 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
     # Optical physiology format hints
     ophys_formats = {
         "Tiff": "TIFF stacks (.tif/.tiff) with metadata",
-        "Bruker": "Bruker PrairieView raw directories",
+        "Bruker": "Bruker PrairieView raw imaging directories with 'cycle' files, .txt, .xml, and converted .ome.tif files",
         "ScanImage": "ScanImage TIFFs with header metadata",
         "Miniscope": "Miniscope videos (.avi/.mp4) + timestamps",
         "Widefield": "Widefield imaging TIFFs/videos",
@@ -267,15 +346,15 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                         "Data type": f"Behavior tracking – {a}",
                         "Format": "Digital/analog behavioral data",
                     })
-        elif et == "Optogenetics":
-            suggestions.append({
-                "Data type": "Optogenetic stimulation protocols",
-                "Format": "Stimulation parameters in CSV/JSON/MAT files"
-            })
-            suggestions.append({
-                "Data type": "Optogenetic device settings", 
-                "Format": "Laser/LED parameters and timing files"
-            })
+        # elif et == "Optogenetics":
+        #     suggestions.append({
+        #         "Data type": "Optogenetic stimulation protocols",
+        #         "Format": "Stimulation parameters in CSV/JSON/MAT files"
+        #     })
+        #     suggestions.append({
+        #         "Data type": "Optogenetic device settings", 
+        #         "Format": "Laser/LED parameters and timing files"
+        #     })
         elif et == "Miniscope imaging":
             suggestions.append({
                 "Data type": "Miniscope imaging", 
@@ -313,13 +392,18 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Data type": "Experimental metadata and notes", 
                 "Format": "`WallPassing_StatusTable.xlsx`, `.json`, and text notes"
             })
+        elif et == "Task/stimulus parameters":    
+            suggestions.append({
+                "Data type": "Task/stimulus parameters",
+                "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
+            })
 
     # Always include task parameters as a hint if ephys is selected
-    if any(et.startswith("Electrophysiology") for et in exp_types):
-        suggestions.append({
-            "Data type": "Task/stimulus parameters",
-            "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
-        })
+    # if any(et.startswith("Electrophysiology") for et in exp_types):
+    #     suggestions.append({
+    #         "Data type": "Task/stimulus parameters",
+    #         "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
+    #     })
 
     # Add common analysis outputs if multiple modalities selected
     if len(exp_types) > 1:
