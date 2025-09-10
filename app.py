@@ -233,27 +233,27 @@ def _acq_options() -> Dict[str, List[str]]:
     }
 
 
-def _default_acq_types() -> Dict[str, List[str]]:
-    return {
-        "Electrophysiology – Extracellular": _ecephys_acq_types() or [
-            "Blackrock",
-            "SpikeGLX",
-            "OpenEphys",
-            "Intan",
-            "Neuralynx",
-            "Plexon",
-            "TDT",
-        ],
-        "Electrophysiology – Intracellular": _intracellular_acq_types(),
-        "Behavior tracking": ["Video", "Analog measurement", "Other"],
-        "Optogenetics": ["Stimulation"],
-        "Miniscope imaging": ["Miniscope V4", "UCLA Miniscope", "Other"],
-        "Fiber photometry": ["Doric", "Other"],
-        "2p imaging": ["Resonant", "Galvo", "Other"],
-        "Widefield imaging": ["sCMOS", "Other"],
-        "Experimental metadata": ["General"],
-        "Notes": ["General"],
-    }
+# def _default_acq_types() -> Dict[str, List[str]]:
+#     return {
+#         "Electrophysiology – Extracellular": _ecephys_acq_types() or [
+#             "Blackrock",
+#             "SpikeGLX",
+#             "OpenEphys",
+#             "Intan",
+#             "Neuralynx",
+#             "Plexon",
+#             "TDT",
+#         ],
+#         "Electrophysiology – Intracellular": _intracellular_acq_types(),
+#         "Behavior tracking": ["Video", "Analog measurement", "Other"],
+#         "Optogenetics": ["Stimulation"],
+#         "Miniscope imaging": ["Miniscope V4", "UCLA Miniscope", "Other"],
+#         "Fiber photometry": ["Doric", "Other"],
+#         "2p imaging": ["Resonant", "Galvo", "Other"],
+#         "Widefield imaging": ["sCMOS", "Other"],
+#         "Experimental metadata": ["General"],
+#         "Notes": ["General"],
+#     }
 
 
 def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) -> List[Dict[str, str]]:
@@ -329,17 +329,37 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                     "Data type": f"Optical physiology – {a}",
                     "Format": fmt,
                 })
-        elif et == "Behavior tracking":
+        elif et == "Behavior measurements":
             for a in acqs or ["Video"]:
-                if a.lower().startswith("video"):
+                if a.lower() == "video":
                     suggestions.append({
                         "Data type": "Behavior videos",
-                        "Format": "MP4/MPEG/AVI videos with timestamps",
+                        "Format": "MP4/MPEG/AVI videos with optional timestamps",
+                    })
+                elif a.lower() == "audio":
+                    suggestions.append({
+                        "Data type": "Behavior audio",
+                        "Format": "WAV, MP3 or NI audio recordings with optional timestamps. May be recorded within the main modality files",
                     })
                 elif a.lower() == "analog measurement":
                     suggestions.append({
                         "Data type": "Behavior analog sensors",
-                        "Format": "CSV/MAT/DAT time series data",
+                        "Format": "CSV/MAT/DAT time series data. May be recorded within the main modality files",
+                    })
+                elif a.lower() == "medpc":
+                    suggestions.append({
+                        "Data type": "MedPC behavioral data",
+                        "Format": "MedPC operant conditioning files (.mpc)",
+                    })
+                elif a.lower() == "neuralynx nvt":
+                    suggestions.append({
+                        "Data type": "Neuralynx position tracking",
+                        "Format": "Neuralynx .nvt position files",
+                    })
+                elif a.lower() == "real-time tracking":
+                    suggestions.append({
+                        "Data type": "Real-time tracking data",
+                        "Format": "DeepLabCut/SLEAP pose estimation files (.h5/.csv)",
                     })
                 else:
                     suggestions.append({
@@ -398,19 +418,19 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
             })
 
-    # Always include task parameters as a hint if ephys is selected
+    # # Always include task parameters as a hint if ephys is selected
     # if any(et.startswith("Electrophysiology") for et in exp_types):
     #     suggestions.append({
     #         "Data type": "Task/stimulus parameters",
     #         "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
     #     })
-
-    # Add common analysis outputs if multiple modalities selected
-    if len(exp_types) > 1:
-        suggestions.append({
-            "Data type": "Cross-modal synchronization",
-            "Format": "Timing/trigger files for multi-modal alignment",
-        })
+    #
+    # # Add common analysis outputs if multiple modalities selected
+    # if len(exp_types) > 1:
+    #     suggestions.append({
+    #         "Data type": "Cross-modal synchronization",
+    #         "Format": "Timing/trigger files for multi-modal alignment",
+    #     })
 
     # Deduplicate while preserving order
     seen: Set[Tuple[str, str]] = set()
@@ -520,11 +540,13 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
         children.append("raw_behavior_video")
     if "Optical Physiology" in exp_types:
         children.append("raw_imaging_ophys")
-    if "Optogenetics" in exp_types:
-        children.append("opto_stim_settings")
-    if "Experimental metadata and notes" in exp_types:
-        children.append("metadata")
-        children.append("notes")
+    # if "Optogenetics" in exp_types:
+    #     children.append("opto_stim_settings")
+    # if "Experimental metadata and notes" in exp_types:
+    #     children.append("metadata")
+    #     children.append("notes")
+    #  Experimental metadata and notes may be files in the 
+    # experiment, subject or session directories rather than folders
 
     # Always include processed data placeholder
     children.extend(["processed_data"]) #"task_data",
