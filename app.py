@@ -229,7 +229,7 @@ def _acq_options() -> Dict[str, List[str]]:
         "Optical Physiology": _ophys_acq_types(),
         "Behavior measurements": _behavior_acq_types(),
         "Task/stimulus parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
-        "Experimental metadata and notes": ["General"],
+        # "Experimental metadata and notes": ["General"], # Always included, no acq types
     }
 
 
@@ -407,11 +407,11 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Data type": "Widefield imaging", 
                 "Format": "TIFF stacks/videos with illumination metadata"
             })
-        elif et == "Experimental metadata and notes":
-            suggestions.append({
-                "Data type": "Experimental metadata and notes", 
-                "Format": "`WallPassing_StatusTable.xlsx`, `.json`, and text notes"
-            })
+        # elif et == "Experimental metadata and notes":
+        #     suggestions.append({
+        #         "Data type": "Experimental metadata and notes", 
+        #         "Format": "`.xlsx`, `.json`, and text notes"
+        #     })
         elif et == "Task/stimulus parameters":    
             suggestions.append({
                 "Data type": "Task/stimulus parameters",
@@ -576,14 +576,14 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
         tree += connector + c + "\n"
     return tree
 
-def _example_formats_df() -> List[Dict[str, str]]:
-    return [
-        {"Data type": "Electrophysiology recordings", "Format": "Blackrock `.nsx`,  `.ccf`, `.nev` files"},
-        {"Data type": "Behavior videos", "Format": "MP4 recordings"},
-        {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
-        {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
-        {"Data type": "Experimental metadata and notes", "Format": "`WallPassing_StatusTable.xlsx`, `.json`, text"},
-    ]
+# def _example_formats_df() -> List[Dict[str, str]]:
+#     return [
+#         {"Data type": "Electrophysiology recordings", "Format": "Blackrock `.nsx`,  `.ccf`, `.nev` files"},
+#         {"Data type": "Behavior videos", "Format": "MP4 recordings"},
+#         {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
+#         {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
+#         {"Data type": "Experimental metadata and notes", "Format": "`.xlsx`, `.json`, text"},
+#     ]
 
 
 def main() -> None:
