@@ -57,25 +57,18 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
             "required": {"opto_device_model", "stimulation_wavelength_nm"},
             "optional": {"stimulation_power_mw", "stimulation_protocol"},
         },
-        "Miniscope imaging": {
-            # Needed to create Device and ImageSeries with correct rate
-            "required": {"miniscope_model", "imaging_frame_rate_fps"},
-            "optional": {"field_of_view_um", "imaging_indicator"},
-        },
-        "Fiber photometry": {
-            # Needed to create Device and Timeseries with rate
-            "required": {"fp_device_model", "sampling_rate_hz", "excitation_wavelength_nm"},
-            "optional": {"emission_wavelength_nm"},
-        },
-        "2p imaging": {
-            # Needed to create Device/OpticalChannel and TwoPhotonSeries
-            "required": {"two_photon_microscope", "imaging_frame_rate_fps", "laser_wavelength_nm"},
-            "optional": {"objective_magnification", "numerical_aperture"},
-        },
-        "Widefield imaging": {
-            # Needed to create Device and ImageSeries with correct rate
-            "required": {"widefield_system", "imaging_frame_rate_fps"},
-            "optional": {"illumination_wavelength_nm", "camera_model"},
+        "Optical Physiology": {
+            # Needed to create Device/OpticalChannel and imaging series
+            "required": {"ophys_device_model", "imaging_frame_rate_fps"},
+            "optional": {
+                "field_of_view_um",
+                "imaging_indicator",
+                "objective_magnification",
+                "numerical_aperture",
+                "excitation_wavelength_nm",
+                "emission_wavelength_nm",
+                "camera_model",
+            },
         },
         "EEG recordings": {
             # Needed to create Device/ElectrodeGroup with montage and rate

@@ -107,6 +107,53 @@ def _intracellular_acq_types() -> List[str]:
     return ["Patch-clamp", "Current clamp", "Voltage clamp", "Whole-cell", "Cell-attached"]
 
 
+def _ophys_acq_types() -> List[str]:
+    """Retrieve Optical Physiology acquisition types from NeuroConv when available.
+
+    Scans neuroconv.datainterfaces.ophys for classes containing 'Imaging'.
+    Returns vendor/source names like 'Tiff', 'Bruker', 'ScanImage', 'Miniscope'.
+    """
+    try:
+        import inspect  # type: ignore
+        from neuroconv.datainterfaces import ophys as nwb_ophys  # type: ignore
+
+        acq: Set[str] = set()
+        for name, obj in inspect.getmembers(nwb_ophys):
+            if inspect.isclass(obj) and "Imaging" in name and "Segmentation" not in name:
+                base = name.split("Imaging", 1)[0]
+                base = base.replace("Interface", "").strip()
+                if base:
+                    acq.add(base)
+        if acq:
+            return sorted(acq)
+    except Exception:
+        pass
+    return ["Tiff", "Bruker", "ScanImage", "Miniscope", "Widefield", "Photometry"]
+
+
+def _acq_options() -> Dict[str, List[str]]:
+    """Unified acquisition type options per experiment type.
+
+    Combines electrophysiology split and optical physiology category.
+    """
+    return {
+        "Electrophysiology – Extracellular": _neuroconv_ecephys_acq_types() or [
+            "Blackrock",
+            "SpikeGLX",
+            "OpenEphys",
+            "Intan",
+            "Neuralynx",
+            "Plexon",
+            "TDT",
+        ],
+        "Electrophysiology – Intracellular": _intracellular_acq_types(),
+        "Optical Physiology": _ophys_acq_types(),
+        "Behavior tracking": ["Video", "Analog measurement", "Other"],
+        "Optogenetics": ["Stimulation"],
+        "Experimental metadata and notes": ["General"],
+    }
+
+
 def _default_acq_types() -> Dict[str, List[str]]:
     return {
         "Electrophysiology – Extracellular": _neuroconv_ecephys_acq_types() or [
@@ -170,6 +217,16 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
         "Cell-attached": "Cell-attached recording files",
     }
 
+    # Optical physiology format hints
+    ophys_formats = {
+        "Tiff": "TIFF stacks (.tif/.tiff) with metadata",
+        "Bruker": "Bruker PrairieView raw directories",
+        "ScanImage": "ScanImage TIFFs with header metadata",
+        "Miniscope": "Miniscope videos (.avi/.mp4) + timestamps",
+        "Widefield": "Widefield imaging TIFFs/videos",
+        "Photometry": "Fiber photometry CSV/MAT time series",
+    }
+
     for et in exp_types:
         acqs = acq_map.get(et, [])
         if et.startswith("Electrophysiology – Extracellular"):
@@ -184,6 +241,13 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 fmt = icephys_formats.get(a, "Intracellular recording files")
                 suggestions.append({
                     "Data type": f"Intracellular ephys – {a}",
+                    "Format": fmt,
+                })
+        elif et == "Optical Physiology":
+            for a in acqs or ["Tiff"]:
+                fmt = ophys_formats.get(a, "Imaging files")
+                suggestions.append({
+                    "Data type": f"Optical physiology – {a}",
                     "Format": fmt,
                 })
         elif et == "Behavior tracking":
@@ -244,19 +308,10 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Data type": "Widefield imaging", 
                 "Format": "TIFF stacks/videos with illumination metadata"
             })
-        elif et == "Experimental metadata":
+        elif et == "Experimental metadata and notes":
             suggestions.append({
-                "Data type": "Experimental protocols", 
-                "Format": "Experimental design and procedure files"
-            })
-            suggestions.append({
-                "Data type": "Session metadata", 
-                "Format": "`SessionTable.xlsx`, `.json` metadata files"
-            })
-        elif et == "Notes":
-            suggestions.append({
-                "Data type": "Experimental notes", 
-                "Format": "Markdown, text, or PDF documentation"
+                "Data type": "Experimental metadata and notes", 
+                "Format": "`WallPassing_StatusTable.xlsx`, `.json`, and text notes"
             })
 
     # Always include task parameters as a hint if ephys is selected
@@ -320,6 +375,12 @@ def _suggest_processed_formats(exp_types: List[str], acq_map: Dict[str, List[str
                 {"Data type": "Position tracking", "Format": "Extracted animal positions and trajectories"},
                 {"Data type": "Behavioral scoring", "Format": "Automated behavior classification results"},
             ])
+        elif et == "Optical Physiology":
+            suggestions.extend([
+                {"Data type": "Motion correction", "Format": "Motion-corrected imaging stacks"},
+                {"Data type": "ROI segmentation", "Format": "Cell masks and fluorescence traces"},
+                {"Data type": "dF/F analysis", "Format": "Calcium signal analysis and statistics"},
+            ])
         elif et == "2p imaging":
             suggestions.extend([
                 {"Data type": "Motion correction", "Format": "Motion-corrected imaging stacks"},
@@ -341,8 +402,9 @@ def _suggest_processed_formats(exp_types: List[str], acq_map: Dict[str, List[str
             ])
 
     # Cross-modal analysis suggestions
-    if len([et for et in exp_types if et.startswith("Electrophysiology")]) > 0 and \
-       len([et for et in exp_types if "imaging" in et.lower()]) > 0:
+    if len([et for et in exp_types if et.startswith("Electrophysiology")]) > 0 and (
+        "Optical Physiology" in exp_types
+    ):
         suggestions.append({
             "Data type": "Multi-modal analysis",
             "Format": "Electrophysiology-imaging correlation analysis"
@@ -372,19 +434,12 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
         children.append("raw_ephys_data")
     if "Behavior tracking" in exp_types and has_video:
         children.append("raw_behavior_video")
-    if "2p imaging" in exp_types:
-        children.append("raw_imaging_2p")
-    if "Miniscope imaging" in exp_types:
-        children.append("raw_imaging_miniscope")
-    if "Widefield imaging" in exp_types:
-        children.append("raw_imaging_widefield")
-    if "Fiber photometry" in exp_types:
-        children.append("raw_photometry_data")
+    if "Optical Physiology" in exp_types:
+        children.append("raw_imaging_ophys")
     if "Optogenetics" in exp_types:
         children.append("opto_stim_settings")
-    if "Experimental metadata" in exp_types:
+    if "Experimental metadata and notes" in exp_types:
         children.append("metadata")
-    if "Notes" in exp_types:
         children.append("notes")
 
     # Always include processed data placeholder
@@ -395,10 +450,7 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
     for name in [
         "raw_ephys_data",
         "raw_behavior_video",
-        "raw_imaging_2p",
-        "raw_imaging_miniscope",
-        "raw_imaging_widefield",
-        "raw_photometry_data",
+        "raw_imaging_ophys",
         "opto_stim_settings",
         "metadata",
         "notes",
@@ -424,7 +476,7 @@ def _example_formats_df() -> List[Dict[str, str]]:
         {"Data type": "Behavior videos", "Format": "MP4 recordings"},
         {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
         {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
-        {"Data type": "Experimental metadata", "Format": "`WallPassing_StatusTable.xlsx`, `.json` files"},
+        {"Data type": "Experimental metadata and notes", "Format": "`WallPassing_StatusTable.xlsx`, `.json`, text"},
     ]
 
 
@@ -457,7 +509,7 @@ def main() -> None:
         )
 
         # Build acquisition type options per selected experiment type
-        ACQ_OPTIONS = _default_acq_types()
+        ACQ_OPTIONS = _acq_options()
         selected_acq: Dict[str, List[str]] = {}
         for et in exp_types:
             opts = ACQ_OPTIONS.get(et, ["Other"])

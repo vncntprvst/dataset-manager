@@ -112,40 +112,25 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "stimulation_power_mw",
         "stimulation_protocol",
     ],
-    "Miniscope imaging": [
-        "miniscope_model",
+    "Optical Physiology": [
+        # Unified ophys proxy fields across 2p/widefield/miniscope/photometry
+        "ophys_device_model",
         "imaging_frame_rate_fps",
         "field_of_view_um",
         "imaging_indicator",
-    ],
-    "Fiber photometry": [
-        "fp_device_model",
-        "excitation_wavelength_nm",
-        "emission_wavelength_nm",
-        "sampling_rate_hz",
-    ],
-    "2p imaging": [
-        "two_photon_microscope",
         "objective_magnification",
         "numerical_aperture",
-        "laser_wavelength_nm",
-        "imaging_frame_rate_fps",
-    ],
-    "Widefield imaging": [
-        "widefield_system",
-        "illumination_wavelength_nm",
+        "excitation_wavelength_nm",
+        "emission_wavelength_nm",
         "camera_model",
-        "imaging_frame_rate_fps",
     ],
     # Additional organizational/annotation types
-    "Experimental metadata": [
+    "Experimental metadata and notes": [
         "device_name",
         "device_description",
         "device_manufacturer",
         "protocol",
         "experiment_notes",
-    ],
-    "Notes": [
         "notes",
     ],
 }
