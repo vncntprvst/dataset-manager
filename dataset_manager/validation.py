@@ -47,13 +47,13 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
             "required": {"icephys_setup", "recording_mode", "sampling_rate_hz"},
             "optional": {"cell_id", "electrode_name"},
         },
-        "Behavior tracking": {
-            # Needed to create ImageSeries/Video with correct timing
-            "required": {"behavior_modality", "frame_rate_fps"},
-            "optional": {"camera_count", "tracking_software"},
+        "Behavior and physiological measurements": {
+            # Needed to represent Video/Audio/Analog series with correct timing
+            "required": {"frame_rate_fps"},
+            "optional": {"camera_count", "tracking_software", "behavior_modality"},
         },
-        "Optogenetics": {
-            # Needed to define opto Device and basic stimulation parameters
+        "Stimulations": {
+            # Needed to define stimulation Device and basic parameters
             "required": {"opto_device_model", "stimulation_wavelength_nm"},
             "optional": {"stimulation_power_mw", "stimulation_protocol"},
         },
@@ -69,11 +69,6 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
                 "emission_wavelength_nm",
                 "camera_model",
             },
-        },
-        "EEG recordings": {
-            # Needed to create Device/ElectrodeGroup with montage and rate
-            "required": {"eeg_system", "sampling_rate_hz", "montage", "reference_scheme"},
-            "optional": set(),
         },
     }
 

@@ -1,5 +1,5 @@
 [project]
-name = "data-bundling-ui"
+name = "dataset-manager"
 version = "0.1.0"
 description = "App to bundle data and metadata for U19 experiments' data conversion"
 readme = "README.md"
@@ -12,7 +12,9 @@ dependencies = [
     "pynwb>=2.5",
     "dandischema>=0.9",
     "nwbinspector>=0.5",
-    "neuroconv"
+    "neuroconv",
+    "pyyaml",
+    "neurosift",
 ]
 authors = [
     {name = "Vincent Prevosto", email = "prevosto@mit.edu"}

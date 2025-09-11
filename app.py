@@ -1,17 +1,22 @@
 import io
 import os
+import re
+import json
+import subprocess
 from datetime import datetime
-from typing import List, Dict, Tuple, Set
+from typing import List, Dict, Tuple, Set, Any
+from textwrap import dedent
 
 import streamlit as st
+import yaml
 
-from data_bundling_ui.schema import (
+from dataset_manager.schema import (
     get_supported_experiment_types,
     collect_required_fields,
     split_user_vs_auto,
 )
-from data_bundling_ui.export import build_workbook_bytes, build_csv_bytes
-from data_bundling_ui.validation import (
+from dataset_manager.export import build_workbook_bytes, build_csv_bytes
+from dataset_manager.validation import (
     run_pynwb_validation,
     run_nwb_inspector,
     check_template_columns,
@@ -227,10 +232,268 @@ def _acq_options() -> Dict[str, List[str]]:
         ],
         "Electrophysiology – Intracellular": _intracellular_acq_types(),
         "Optical Physiology": _ophys_acq_types(),
-        "Behavior measurements": _behavior_acq_types(),
-        "Task/stimulus parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
-        # "Experimental metadata and notes": ["General"], # Always included, no acq types
+        # Align with schema.EXPERIMENT_TYPE_FIELDS key
+        "Behavior and physiological measurements": _behavior_acq_types(),
+        "Stimulations": ["Optogenetics", "Electrical stimulation", "Other"],
+        "Sync and Task events or parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
+        # Always present modality; no specific acquisition subtypes required
+        "Experimental metadata and notes": ["General"],
     }
+
+
+# ------------------------------
+# Project + IO helpers
+# ------------------------------
+
+def _project_root() -> str:
+    return os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+
+
+def _ingestion_dir(root: str) -> str:
+    return os.path.join(root, "ingestion_scripts")
+
+
+def _ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+def _sanitize_name(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", s.strip())
+
+
+def _compose_script_name(project_name: str, experimenter: str, modalities: List[str]) -> str:
+    mod = "__".join(_sanitize_name(m) for m in modalities) or "modalities"
+    base = f"{_sanitize_name(project_name)}__{_sanitize_name(experimenter)}__{mod}.py"
+    return base
+
+
+def _load_dataset_yaml(root: str) -> Dict[str, Any]:
+    path = os.path.join(root, "dataset.yaml")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _save_json(path: str, obj: Any) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2)
+
+
+def _read_json(path: str) -> Any:
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+# ------------------------------
+# Script generation (NeuroConv-first template)
+# ------------------------------
+
+def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
+    project = cfg.get("project_name", "U19_Project")
+    experimenter = cfg.get("experimenter", "Experimenter")
+    exp_types: List[str] = cfg.get("experimental_modalities", [])
+    acq_types: Dict[str, List[str]] = cfg.get("acquisition_types", {})
+
+    # Best-effort mapping from acquisition labels to NeuroConv interfaces
+    # Users will need to finalize data file paths and specific interface choices.
+    ecephys_map = {
+        "SpikeGLX": "SpikeGLXRecordingInterface",
+        "OpenEphys": "OpenEphysBinaryRecordingInterface",
+        "Blackrock": "BlackrockRecordingInterface",
+        "Intan": "IntanRecordingInterface",
+        "Neuralynx": "NeuralynxRecordingInterface",
+        "Plexon": "PlexonRecordingInterface",
+        "TDT": "TdtRecordingInterface",
+        "EDF": "EDFRecordingInterface",
+        "White Matter": "WhiteMatterRecordingInterface",
+    }
+    icephys_map = {
+        "Axon Instruments": "ABFInterface",
+        "HEKA": "HEKAInterface",
+    }
+    ophys_map = {
+        "TIFF": "TiffImagingInterface",
+        "Tiff": "TiffImagingInterface",
+        "Bruker": "BrukerTiffImagingInterface",
+        "ScanImage": "ScanImageImagingInterface",
+        "Miniscope": "MiniscopeImagingInterface",
+        "HDF5": "HDF5ImagingInterface",
+    }
+
+    # Determine modality blocks to include
+    include_ecephys = any(et.startswith("Electrophysiology – Extracellular") for et in exp_types)
+    include_icephys = any(et.startswith("Electrophysiology – Intracellular") for et in exp_types)
+    include_ophys = any(et == "Optical Physiology" for et in exp_types)
+    include_behavior = any(et == "Behavior and physiological measurements" for et in exp_types)
+
+    lines: List[str] = []
+    lines.append("#!/usr/bin/env python")
+    lines.append("# Auto-generated by Dataset Manager – NeuroConv-based conversion skeleton")
+    lines.append("import os, argparse, datetime, json")
+    lines.append("from typing import Dict, Any")
+    lines.append("\n# NeuroConv imports (install: pip install neuroconv)")
+    lines.append("from neuroconv import NWBConverter")
+    if include_ecephys:
+        lines.append("from neuroconv.datainterfaces import ecephys as ncv_ecephys")
+    if include_icephys:
+        lines.append("from neuroconv.datainterfaces import icephys as ncv_icephys")
+    if include_ophys:
+        lines.append("from neuroconv.datainterfaces import ophys as ncv_ophys")
+    if include_behavior:
+        lines.append("from neuroconv.datainterfaces import behavior as ncv_behavior")
+    lines.append("")
+
+    # Build converter class
+    lines.append("class ProjectConverter(NWBConverter):")
+    lines.append("    data_interface_classes = {}")
+
+    # Add interface class references per modality
+    if include_ecephys:
+        labels = acq_types.get("Electrophysiology – Extracellular", []) or ["SpikeGLX"]
+        for lab in labels:
+            cls = ecephys_map.get(lab, None)
+            if cls:
+                lines.append(f"    data_interface_classes['ecephys__{_sanitize_name(lab)}'] = getattr(ncv_ecephys, '{cls}', None)")
+            else:
+                lines.append(f"    # TODO: map '{lab}' to a NeuroConv ecephys interface")
+    if include_icephys:
+        labels = acq_types.get("Electrophysiology – Intracellular", []) or ["Axon Instruments"]
+        for lab in labels:
+            cls = icephys_map.get(lab, None)
+            if cls:
+                lines.append(f"    data_interface_classes['icephys__{_sanitize_name(lab)}'] = getattr(ncv_icephys, '{cls}', None)")
+            else:
+                lines.append(f"    # TODO: map '{lab}' to a NeuroConv icephys interface")
+    if include_ophys:
+        labels = acq_types.get("Optical Physiology", []) or ["Tiff"]
+        for lab in labels:
+            cls = ophys_map.get(lab, None)
+            if cls:
+                lines.append(f"    data_interface_classes['ophys__{_sanitize_name(lab)}'] = getattr(ncv_ophys, '{cls}', None)")
+            else:
+                lines.append(f"    # TODO: map '{lab}' to a NeuroConv ophys interface")
+    if include_behavior:
+        # Leave as TODO since behavior inputs vary widely
+        lines.append("    # TODO: add behavior interfaces (e.g., VideoInterface, AudioInterface) if applicable")
+
+    lines.append("")
+    lines.append(dedent(f"""
+    def main():
+        parser = argparse.ArgumentParser(description='Conversion script for {project} ({experimenter}).')
+        parser.add_argument('--source', required=True, help='Path to source data root for this session')
+        parser.add_argument('--output', required=True, help='Path to output .nwb file')
+        parser.add_argument('--session-id', required=True, help='Session identifier')
+        parser.add_argument('--overwrite', action='store_true', help='Overwrite existing output file')
+        args = parser.parse_args()
+
+        # Assemble source_data mapping for each interface; modify globs/paths as needed.
+        source_data: Dict[str, Any] = {{}}
+
+        # Example entries (uncomment and adjust):
+        # source_data['ecephys__SpikeGLX'] = dict(folder_path=os.path.join(args.source, 'raw_ephys_data'))
+        # source_data['ophys__Tiff'] = dict(file_paths=[...])
+
+        converter = ProjectConverter(source_data=source_data)
+
+        # Fetch and enrich metadata
+        metadata = converter.get_metadata()
+        metadata.setdefault('NWBFile', {{}})
+        metadata['NWBFile'].update({{
+            'session_description': 'Converted using NeuroConv',
+            'session_id': args.session_id,
+            'session_start_time': datetime.datetime.now().astimezone(),
+            'identifier': f"{_sanitize_name(project)}__{{args.session_id}}",
+            'experimenter': ['{experimenter}'],
+            'institution': '{cfg.get('institution', '')}',
+            'lab': '{cfg.get('lab', '')}',
+        }})
+
+        converter.run_conversion(
+            metadata=metadata,
+            nwbfile_path=args.output,
+            overwrite=args.overwrite,
+        )
+
+        # Record simple provenance JSON alongside the NWB
+        prov = {{
+            'project': '{project}',
+            'experimenter': '{experimenter}',
+            'session_id': args.session_id,
+            'timestamp': datetime.datetime.now().isoformat(),
+            'interfaces': list(ProjectConverter.data_interface_classes.keys()),
+        }}
+        with open(args.output + '.provenance.json', 'w', encoding='utf-8') as f:
+            json.dump(prov, f, indent=2)
+
+    if __name__ == '__main__':
+        main()
+    """))
+
+    return "\n".join(lines) + "\n"
+
+
+# ------------------------------
+# Conversion runs tracking
+# ------------------------------
+
+def _runs_index_path(root: str) -> str:
+    return os.path.join(_ingestion_dir(root), "conversions.json")
+
+
+def _load_runs(root: str) -> List[Dict[str, Any]]:
+    data = _read_json(_runs_index_path(root))
+    return data if isinstance(data, list) else []
+
+
+def _save_runs(root: str, runs: List[Dict[str, Any]]) -> None:
+    _ensure_dir(_ingestion_dir(root))
+    _save_json(_runs_index_path(root), runs)
+
+
+def _append_run(root: str, run: Dict[str, Any]) -> None:
+    runs = _load_runs(root)
+    runs.append(run)
+    _save_runs(root, runs)
+
+
+def _delete_run(root: str, idx: int) -> None:
+    runs = _load_runs(root)
+    if 0 <= idx < len(runs):
+        runs.pop(idx)
+        _save_runs(root, runs)
+
+
+def _spawn_process(cmd: List[str]) -> subprocess.Popen:
+    # Non-blocking spawn; leave stdout/stderr to file handles managed by caller if desired
+    return subprocess.Popen(cmd)
+
+
+def _run_script_and_log(script_path: str, source: str, output: str, session_id: str, log_path: str, overwrite: bool = False) -> int:
+    with open(log_path, "w", encoding="utf-8") as log:
+        log.write(f"Running: {script_path}\n")
+        log.write(f"Session: {session_id}\n")
+        log.write(f"Source: {source}\nOutput: {output}\n\n")
+        log.flush()
+        cmd = ["python", script_path, "--source", source, "--output", output, "--session-id", session_id]
+        if overwrite:
+            cmd.append("--overwrite")
+        try:
+            proc = subprocess.Popen(cmd, stdout=log, stderr=log)
+            ret = proc.wait()
+            log.write(f"\nExit code: {ret}\n")
+            return ret
+        except Exception as e:
+            log.write(f"\nFailed to run script: {e}\n")
+            return -1
 
 
 # def _default_acq_types() -> Dict[str, List[str]]:
@@ -329,7 +592,47 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                     "Data type": f"Optical physiology – {a}",
                     "Format": fmt,
                 })
-        elif et == "Behavior measurements":
+        elif et == "Stimulations":
+            # Twofold data: timestamps and parameters
+            suggestions.append({
+                "Data type": "Stimulation pulse timestamps",
+                "Format": "Timestamps recorded by main acquisition system (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)",
+            })
+            if a.lower() == "optogenetics":
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with wavelength/power/frequency/duration/etc.",
+                })
+            elif a.lower() == "electrical stimulation":
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with current/frequency/duration/etc.",
+                })
+            else:
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`)",
+                })
+        elif et == "Sync and Task events or parameters":    
+            for a in acqs or ["TTL events"]:
+                if a.lower() == "ttl events":
+                    fmt = "TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)"
+                    suggestions.append({
+                        "Data type": "Synchronization TTL events",
+                        "Format": fmt,
+                    })
+                elif a.lower() in ["bpod", "bonsai", "harp"]:
+                    fmt = f"{a} task files (`.csv`, `.mat`, `.json`)"
+                    suggestions.append({
+                        "Data type": f"Task events, conditions and parameters – {a}",
+                        "Format": fmt,
+                    })
+                else:
+                    suggestions.append({
+                        "Data type": f"Task events and parameters – {a}",
+                        "Format": "Behavioral task files if present (`.csv`, `.mat`, `.json`)",
+                    })
+        elif et == "Behavior and physiological measurements":
             for a in acqs or ["Video"]:
                 if a.lower() == "video":
                     suggestions.append({
@@ -366,71 +669,77 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                         "Data type": f"Behavior tracking – {a}",
                         "Format": "Digital/analog behavioral data",
                     })
-        # elif et == "Optogenetics":
+        # elif et == "Miniscope imaging":
         #     suggestions.append({
-        #         "Data type": "Optogenetic stimulation protocols",
-        #         "Format": "Stimulation parameters in CSV/JSON/MAT files"
+        #         "Data type": "Miniscope imaging", 
+        #         "Format": "Raw `.avi`/`.mp4` videos with timestamp files"
         #     })
         #     suggestions.append({
-        #         "Data type": "Optogenetic device settings", 
-        #         "Format": "Laser/LED parameters and timing files"
+        #         "Data type": "Miniscope metadata",
+        #         "Format": "Camera settings and calibration files"
         #     })
-        elif et == "Miniscope imaging":
-            suggestions.append({
-                "Data type": "Miniscope imaging", 
-                "Format": "Raw `.avi`/`.mp4` videos with timestamp files"
-            })
-            suggestions.append({
-                "Data type": "Miniscope metadata",
-                "Format": "Camera settings and calibration files"
-            })
-        elif et == "Fiber photometry":
-            suggestions.append({
-                "Data type": "Fiber photometry signals", 
-                "Format": "Time-series CSV/MAT with fluorescence data"
-            })
-            suggestions.append({
-                "Data type": "Photometry hardware settings",
-                "Format": "Excitation/emission wavelength parameters"
-            })
-        elif et == "2p imaging":
-            suggestions.append({
-                "Data type": "Two-photon imaging", 
-                "Format": "TIFF stacks/HDF5 with acquisition metadata"
-            })
-            suggestions.append({
-                "Data type": "2p microscope settings",
-                "Format": "Laser power, objective, and timing parameters"
-            })
-        elif et == "Widefield imaging":
-            suggestions.append({
-                "Data type": "Widefield imaging", 
-                "Format": "TIFF stacks/videos with illumination metadata"
-            })
+        # elif et == "Fiber photometry":
+        #     suggestions.append({
+        #         "Data type": "Fiber photometry signals", 
+        #         "Format": "Time-series CSV/MAT with fluorescence data"
+        #     })
+        #     suggestions.append({
+        #         "Data type": "Photometry hardware settings",
+        #         "Format": "Excitation/emission wavelength parameters"
+        #     })
+        # elif et == "2p imaging":
+        #     suggestions.append({
+        #         "Data type": "Two-photon imaging", 
+        #         "Format": "TIFF stacks/HDF5 with acquisition metadata"
+        #     })
+        #     suggestions.append({
+        #         "Data type": "2p microscope settings",
+        #         "Format": "Laser power, objective, and timing parameters"
+        #     })
+        # elif et == "Widefield imaging":
+        #     suggestions.append({
+        #         "Data type": "Widefield imaging", 
+        #         "Format": "TIFF stacks/videos with illumination metadata"
+        #     })
         # elif et == "Experimental metadata and notes":
         #     suggestions.append({
         #         "Data type": "Experimental metadata and notes", 
         #         "Format": "`.xlsx`, `.json`, and text notes"
         #     })
-        elif et == "Task/stimulus parameters":    
-            suggestions.append({
-                "Data type": "Task/stimulus parameters",
-                "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
-            })
 
-    # # Always include task parameters as a hint if ephys is selected
-    # if any(et.startswith("Electrophysiology") for et in exp_types):
-    #     suggestions.append({
-    #         "Data type": "Task/stimulus parameters",
-    #         "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
-    #     })
-    #
+
+    # # # Always include task/stimulus parameters if Stimulations is selected
+    # if "Stimulations" in exp_types:
+    #     # suggestions.append({
+    #     #     "Data type": "Task/stimulus parameters",
+    #     #     "Format": "TTL stimulus events. Other TTLs and behavioral task files if present (`.csv`, `.mat`, `.json`)",
+    #     # })
+    #     # Check if already added above
+    #     if not any(row.get("Data type", "") == "Task/stimulus parameters" for row in suggestions):
+    #         suggestions.append({
+    #             "Data type": "Task/stimulus parameters",
+    #             "Format": "TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)",
+    #         })
+    #     else:
+    #         # Update existing entry to include stimulus events
+    #         for row in suggestions:
+    #             if row.get("Data type", "") == "Task/stimulus parameters":
+    #                 existing_format = row.get("Format", "")
+    #                 if "TTL stimulus events" not in existing_format:
+    #                     row["Format"] = existing_format + "; TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)"
+    #                 break
+    
     # # Add common analysis outputs if multiple modalities selected
     # if len(exp_types) > 1:
     #     suggestions.append({
     #         "Data type": "Cross-modal synchronization",
     #         "Format": "Timing/trigger files for multi-modal alignment",
     #     })
+    # Always include metadata/notes (even if no modalities selected)
+    suggestions.append({
+        "Data type": "Experimental metadata and notes",
+        "Format": "`.xlsx`, `.json`, and text notes (may be fetched from brainSTEM)"
+    })
 
     # Deduplicate while preserving order
     seen: Set[Tuple[str, str]] = set()
@@ -536,7 +845,7 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
 
     if any(et.startswith("Electrophysiology") for et in exp_types):
         children.append("raw_ephys_data")
-    if "Behavior tracking" in exp_types and has_video:
+    if "Behavior and physiological measurements" in exp_types and has_video:
         children.append("raw_behavior_video")
     if "Optical Physiology" in exp_types:
         children.append("raw_imaging_ophys")
@@ -567,23 +876,107 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
             ordered.append(name)
 
     tree = (
-        "Subject\n"
+        "SUBJECT_ID\n"
         "├── YYYY_MM_DD\n"
-        "│   ├── SUBJECT_SESSION_ID\n"
+        "│   ├── SESSION_ID\n"
     )
     for i, c in enumerate(ordered):
         connector = "│   │   ├── " if i < len(ordered) - 1 else "│   │   └── "
         tree += connector + c + "\n"
     return tree
 
-# def _example_formats_df() -> List[Dict[str, str]]:
-#     return [
-#         {"Data type": "Electrophysiology recordings", "Format": "Blackrock `.nsx`,  `.ccf`, `.nev` files"},
-#         {"Data type": "Behavior videos", "Format": "MP4 recordings"},
-#         {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
-#         {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
-#         {"Data type": "Experimental metadata and notes", "Format": "`.xlsx`, `.json`, text"},
-#     ]
+def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
+    """Render the project description form and return values."""
+
+    project_name = st.text_input(
+        "Project Name", value=initial.get("project_name", ""), key=f"pn_{initial.get('_mode', '')}"
+    )
+    experimenter = st.text_input(
+        "Experimenter", value=initial.get("experimenter", ""), key=f"ex_{initial.get('_mode', '')}"
+    )
+
+    # Hide 'Experimental metadata and notes' from selection; it's always included implicitly
+    options_all = [t for t in get_supported_experiment_types() if t != "Experimental metadata and notes"]
+    exp_types = st.multiselect(
+        "Experimental modalities",
+        options=options_all,
+        default=initial.get("experimental_modalities", []),
+        key=f"et_{initial.get('_mode', '')}",
+    )
+
+    ACQ_OPTIONS = _acq_options()
+    init_acq = initial.get("acquisition_types", {})
+    selected_acq: Dict[str, List[str]] = {}
+    for et in exp_types:
+        acq = st.multiselect(
+            f"Acquisition type – {et}",
+            options=ACQ_OPTIONS.get(et, ["Other"]),
+            default=init_acq.get(et, []),
+            key=f"acq_{initial.get('_mode', '')}_{et}",
+        )
+        selected_acq[et] = acq
+
+    st.subheader("Raw data formats")
+    st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
+    signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
+    sig_key = f"_formats_signature_{initial.get('_mode', '')}"
+    rows_key = f"data_formats_rows_{initial.get('_mode', '')}"
+    
+    # Force update if experimental types or acquisition types changed
+    needs_update = (
+        rows_key not in st.session_state or 
+        signature != st.session_state.get(sig_key)
+    )
+    
+    if needs_update:
+        st.session_state[rows_key] = _suggest_raw_formats(exp_types, selected_acq)
+        st.session_state[sig_key] = signature
+    data_formats = st.data_editor(
+        st.session_state[rows_key],
+        hide_index=True,
+        num_rows="dynamic",
+        column_config={
+            "Data type": st.column_config.TextColumn(required=True),
+            "Format": st.column_config.TextColumn(required=True),
+        },
+        key=f"data_formats_editor_{initial.get('_mode', '')}",
+    )
+    st.session_state[rows_key] = data_formats
+
+    st.subheader("Data organization")
+    st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
+    current_tree = initial.get("data_organization") or _build_tree_text(exp_types, data_formats)
+    tree_text = st.text_area(
+        "Tree editor",
+        value=current_tree,
+        height=240,
+        key=f"tree_editor_{initial.get('_mode', '')}",
+    )
+    st.caption("Preview")
+    st.code(tree_text)
+
+    # In 'Create new dataset', allow selecting the project root directory
+    project_root_dir: str | None = None
+    if initial.get("_mode") == "new":
+        st.subheader("Project root directory")
+        st.caption("Select the folder that contains your project's data. The dataset.yaml will be created there.")
+        default_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        project_root_dir = st.text_input(
+            "Folder path",
+            value=str(default_root),
+            placeholder="C:/path/to/project or /path/to/project",
+            key=f"rootdir_{initial.get('_mode', '')}",
+        )
+
+    return {
+        "project_name": project_name,
+        "experimenter": experimenter,
+        "experimental_modalities": exp_types,
+        "acquisition_types": selected_acq,
+        "data_formats": data_formats,
+        "data_organization": tree_text,
+        "project_root_dir": project_root_dir,
+    }
 
 
 def main() -> None:
@@ -594,8 +987,11 @@ def main() -> None:
     with st.sidebar:
         st.header("Actions")
         st.button("Project description", use_container_width=True, on_click=_set_mode, args=("project",))
-        st.button("Template management", use_container_width=True, on_click=_set_mode, args=("template",))
+        st.button("Descriptors", use_container_width=True, on_click=_set_mode, args=("template",))
         st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
+        st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
+        st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
+        st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
         st.divider()
         if st.button("Quit", type="secondary", use_container_width=True):
             os._exit(0)
@@ -607,58 +1003,62 @@ def main() -> None:
         st.header("Project description")
         st.write("Describe your project organization and data formats.")
 
-        # Experimental types and acquisition types
-        exp_types = st.multiselect(
-            "Experimental types",
-            options=get_supported_experiment_types(),
-            default=[],
-        )
+        project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        dataset_path = os.path.join(project_root, "dataset.yaml")
 
-        # Build acquisition type options per selected experiment type
-        ACQ_OPTIONS = _acq_options()
-        selected_acq: Dict[str, List[str]] = {}
-        for et in exp_types:
-            opts = ACQ_OPTIONS.get(et, ["Other"])
-            acq = st.multiselect(
-                f"Acquisition type – {et}", options=opts, default=[], key=f"acq_{et}"
+        tab_new, tab_edit = st.tabs(["Create new dataset", "Edit existing dataset"])
+
+        with tab_new:
+            data = _project_form({"_mode": "new"})
+            if st.button("Save dataset", key="save_new"):
+                if not data["project_name"] or not data["experimenter"]:
+                    st.error("Project Name and Experimenter are required.")
+                else:
+                    # Use the chosen root directory if provided
+                    target_root = data.get("project_root_dir") or project_root
+                    target_path = os.path.join(target_root, "dataset.yaml")
+                    os.makedirs(target_root, exist_ok=True)
+                    with open(target_path, "w", encoding="utf-8") as f:
+                        yaml.safe_dump(data, f)
+                    st.success(f"Saved to {target_path}")
+
+        with tab_edit:
+            # Allow user to adjust project root unless provided via launcher
+            provided_env = "DM_PROJECT_ROOT" in os.environ
+            edit_root = st.text_input(
+                "Project root directory",
+                value=project_root,
+                help=(
+                    "Folder containing dataset.yaml. "
+                    + ("Set by launcher; you can still change it here." if provided_env else "")
+                ),
+                key="edit_root_dir",
             )
-            selected_acq[et] = acq
-
-        st.subheader("Raw data formats")
-        st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
-        # Build dynamic suggestions based on current selection
-        signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
-        last_sig = st.session_state.get("_formats_signature")
-        if "data_formats_rows" not in st.session_state or signature != last_sig:
-            st.session_state["data_formats_rows"] = _suggest_raw_formats(exp_types, selected_acq)
-            st.session_state["_formats_signature"] = signature
-        data_formats = st.data_editor(
-            st.session_state["data_formats_rows"],
-            hide_index=True,
-            num_rows="dynamic",
-            column_config={
-                "Data type": st.column_config.TextColumn(required=True),
-                "Format": st.column_config.TextColumn(required=True),
-            },
-            key="data_formats_editor",
-        )
-        st.session_state["data_formats_rows"] = data_formats
-
-        st.subheader("Data organization")
-        st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
-        # Regenerate tree dynamically from current selections
-        current_tree = _build_tree_text(exp_types, data_formats)
-        tree_text = st.text_area("Tree editor", value=current_tree, height=240, key="tree_editor")
-        st.session_state["data_org_tree"] = tree_text
-        st.caption("Preview")
-        st.code(tree_text)
+            dataset_path = os.path.join(edit_root, "dataset.yaml")
+            if os.path.exists(dataset_path):
+                try:
+                    with open(dataset_path, "r", encoding="utf-8") as f:
+                        loaded = yaml.safe_load(f) or {}
+                except Exception:
+                    loaded = {}
+                loaded["_mode"] = "edit"
+                data = _project_form(loaded)
+                if st.button("Save changes", key="save_edit"):
+                    if not data["project_name"] or not data["experimenter"]:
+                        st.error("Project Name and Experimenter are required.")
+                    else:
+                        with open(dataset_path, "w", encoding="utf-8") as f:
+                            yaml.safe_dump(data, f)
+                        st.success(f"Updated {dataset_path}")
+            else:
+                st.info(f"No dataset.yaml found in {edit_root}.")
         return
 
     if mode == "template":
         import glob
         import pandas as pd
 
-        st.header("Template management")
+        st.header("Descriptors")
         st.caption("Create a new template or load and edit an existing one.")
 
         tab_create, tab_load = st.tabs(["Create new", "Load existing"])
@@ -666,9 +1066,67 @@ def main() -> None:
         with tab_create:
             exp_types = st.multiselect(
                 "Experimental types",
-                options=get_supported_experiment_types(),
+                options=[t for t in get_supported_experiment_types() if t != "Experimental metadata and notes"],
                 default=[],
             )
+
+            # Optional: fetch metadata from brainSTEM.org
+            st.checkbox("Fetch notes/metadata from brainSTEM.org", value=False, key="use_brainstem")
+            if st.session_state.get("use_brainstem"):
+                root = _project_root()
+                cfg_path = os.path.join(root, "brainstem_config.yaml")
+                api_key: str | None = None
+                if os.path.exists(cfg_path):
+                    try:
+                        with open(cfg_path, "r", encoding="utf-8") as f:
+                            api_key = (yaml.safe_load(f) or {}).get("api_key")
+                    except Exception:
+                        api_key = None
+                if not api_key:
+                    st.info("No brainSTEM API key configured. Provide and save it below.")
+                    api_key_in = st.text_input("brainSTEM API key", type="password")
+                    if st.button("Save brainSTEM config"):
+                        try:
+                            with open(cfg_path, "w", encoding="utf-8") as f:
+                                yaml.safe_dump({"api_key": api_key_in}, f)
+                            st.success(f"Saved API key to {cfg_path}")
+                            api_key = api_key_in
+                        except Exception as e:
+                            st.error(f"Failed to save config: {e}")
+                subj_id = st.text_input("brainSTEM Subject/Record ID (optional)", value="")
+                if api_key and st.button("Fetch metadata from brainSTEM"):
+                    # Best-effort dynamic import; exact API may vary.
+                    meta = {}
+                    try:
+                        try:
+                            import brainstem_python_api_tools as bs  # type: ignore
+                        except Exception:
+                            bs = None  # type: ignore
+                        if bs is not None and hasattr(bs, "Client"):
+                            client = bs.Client(api_key=api_key)  # type: ignore
+                            # Heuristic call; user may need to adapt to their account/data model
+                            if subj_id:
+                                meta = client.get_subject(subj_id)  # type: ignore
+                            else:
+                                meta = client.get_notes(limit=10)  # type: ignore
+                        else:
+                            # Fallback to plain HTTP; user may adjust endpoint
+                            import requests  # type: ignore
+                            headers = {"Authorization": f"Bearer {api_key}"}
+                            base = "https://support.brainstem.org/api"
+                            url = f"{base}/notes" if not subj_id else f"{base}/subjects/{subj_id}"
+                            r = requests.get(url, headers=headers, timeout=20)
+                            r.raise_for_status()
+                            meta = r.json()
+                        st.session_state["brainstem_metadata"] = meta
+                        st.success("Fetched metadata from brainSTEM.")
+                        st.caption("Preview of fetched fields (truncated):")
+                        try:
+                            st.code(json.dumps(meta, indent=2)[:2000])
+                        except Exception:
+                            st.write(meta)
+                    except Exception as e:
+                        st.error(f"Failed to fetch brainSTEM metadata: {e}")
 
             # DANDI/NWB always included
             fields = collect_required_fields(experiment_types=exp_types, include_dandi=True, include_nwb=True)
@@ -901,6 +1359,152 @@ def main() -> None:
                     pass
         else:
             st.info("Upload a .nwb file to start validation.")
+        return
+
+    if mode == "scripts":
+        st.header("Create conversion scripts")
+        st.caption("Generate NeuroConv-based conversion scripts using your project configuration.")
+
+        root = _project_root()
+        ds = _load_dataset_yaml(root)
+        if not ds:
+            st.warning("No dataset.yaml found. Create or edit your project description first.")
+            return
+
+        st.write(f"Project: {ds.get('project_name','')} · Experimenter: {ds.get('experimenter','')}")
+        st.write("Modalities:", ", ".join(ds.get("experimental_modalities", [])) or "(none)")
+
+        ing_dir = _ingestion_dir(root)
+        exists = os.path.isdir(ing_dir) and any(p.endswith(".py") for p in os.listdir(ing_dir))
+        allow_overwrite = False
+        if exists:
+            st.warning(f"Existing scripts detected in {ing_dir}.")
+            allow_overwrite = st.checkbox("Allow overwriting existing scripts", value=False)
+
+        script_name = _compose_script_name(
+            ds.get("project_name", "project"),
+            ds.get("experimenter", "user"),
+            ds.get("experimental_modalities", []),
+        )
+        st.text_input("Script filename", value=script_name, key="script_filename")
+
+        if st.button("Generate script", type="primary"):
+            try:
+                _ensure_dir(ing_dir)
+                out_path = os.path.join(ing_dir, st.session_state.get("script_filename", script_name))
+                if os.path.exists(out_path) and not allow_overwrite:
+                    st.error("File exists. Enable overwrite to proceed.")
+                else:
+                    text = _generate_conversion_script_text(ds)
+                    with open(out_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    st.success(f"Saved script to {out_path}")
+                    st.caption("You may edit the script to point to your actual data locations and interfaces.")
+            except Exception as e:
+                st.error(f"Failed to write script: {e}")
+        return
+
+    if mode == "runs":
+        st.header("Conversion runs")
+        st.caption("Track, run, and manage conversions for the current project.")
+        root = _project_root()
+        ing_dir = _ingestion_dir(root)
+        _ensure_dir(ing_dir)
+
+        # Launch a new conversion
+        st.subheader("Run a conversion")
+        scripts = [p for p in sorted(os.listdir(ing_dir)) if p.endswith('.py')]
+        if not scripts:
+            st.info("No scripts in ingestion_scripts. Create one in 'Create conversion scripts'.")
+        else:
+            sel = st.selectbox("Script", scripts, index=0)
+            c1, c2 = st.columns(2)
+            with c1:
+                session_id = st.text_input("Session ID", value=datetime.now().strftime("%Y%m%d"))
+                source = st.text_input("Source folder", value="", placeholder="Path to session folder")
+            with c2:
+                output = st.text_input("Output NWB path", value="", placeholder="/path/to/output.nwb")
+                overwrite = st.checkbox("Overwrite output if exists", value=False)
+            if st.button("Run conversion", type="primary"):
+                if not source or not output or not session_id:
+                    st.error("Provide source, output, and session ID.")
+                else:
+                    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    log_path = os.path.join(ing_dir, f"run_{ts}_{_sanitize_name(session_id)}.log")
+                    script_path = os.path.join(ing_dir, sel)
+                    st.info("Starting conversion; check the log for progress.")
+                    code = _run_script_and_log(script_path, source, output, session_id, log_path, overwrite)
+                    status = "success" if code == 0 else ("failed" if code > 0 else "error")
+                    _append_run(root, {
+                        "session_id": session_id,
+                        "timestamp": ts,
+                        "script": script_path,
+                        "status": status,
+                        "log": log_path,
+                    })
+                    if status == "success":
+                        st.success("Conversion finished successfully.")
+                    else:
+                        st.error(f"Conversion {status}. See log.")
+
+        st.subheader("Previous runs")
+        runs = _load_runs(root)
+        if not runs:
+            st.caption("No runs recorded yet.")
+            return
+
+        # Show runs table with actions
+        for i, r in enumerate(reversed(runs)):
+            idx = len(runs) - 1 - i
+            with st.expander(f"{r.get('session_id','')} · {r.get('timestamp','')} · {r.get('status','')}"):
+                st.write("Script:", r.get("script", ""))
+                st.write("Log:", r.get("log", ""))
+                # Log preview
+                try:
+                    if os.path.exists(r.get("log", "")):
+                        with open(r["log"], "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        st.text_area("Log content", value=content[-8000:], height=200)
+                except Exception:
+                    pass
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Delete run", key=f"del_run_{idx}"):
+                        _delete_run(root, idx)
+                        st.experimental_rerun()
+                with c2:
+                    if os.path.exists(r.get("log", "")):
+                        with open(r["log"], "r", encoding="utf-8", errors="ignore") as f:
+                            log_bytes = f.read().encode("utf-8", errors="ignore")
+                        st.download_button("Download log", data=log_bytes, file_name=os.path.basename(r["log"]))
+        return
+
+    if mode == "neurosift":
+        st.header("Neurosift Viewer")
+        st.caption("Open a local NWB file in the Neurosift app.")
+        path = st.text_input("Path to local .nwb file", value="", placeholder="/path/to/file.nwb")
+        uploaded = st.file_uploader("Or upload an NWB file to a temp path", type=["nwb"], key="ns_upl")
+        tmp_path: str | None = None
+        if uploaded is not None:
+            import tempfile
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp:
+                    tmp.write(uploaded.read())
+                    tmp_path = tmp.name
+                st.info(f"Saved upload to {tmp_path}")
+            except Exception as e:
+                st.error(f"Failed to save uploaded file: {e}")
+        target = tmp_path or path
+        if st.button("Open in Neurosift"):
+            if not target:
+                st.error("Provide a path or upload an NWB file.")
+            else:
+                try:
+                    # Launch neurosift as a detached process
+                    subprocess.Popen(["neurosift", "view-nwb", target])
+                    st.success("Launched Neurosift. Check your desktop window.")
+                except Exception as e:
+                    st.error(f"Failed to launch neurosift: {e}")
         return
 
 

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -266,16 +266,18 @@ wheels = [
 ]
 
 [[package]]
-name = "data-bundling-ui"
+name = "dataset-manager"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "dandischema" },
     { name = "neuroconv" },
+    { name = "neurosift" },
     { name = "nwbinspector" },
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "pynwb" },
+    { name = "pyyaml" },
     { name = "streamlit" },
     { name = "xlsxwriter" },
 ]
@@ -284,10 +286,12 @@ dependencies = [
 requires-dist = [
     { name = "dandischema", specifier = ">=0.9" },
     { name = "neuroconv" },
+    { name = "neurosift" },
     { name = "nwbinspector", specifier = ">=0.5" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pynwb", specifier = ">=2.5" },
+    { name = "pyyaml" },
     { name = "streamlit", specifier = ">=1.36" },
     { name = "xlsxwriter", specifier = ">=3.1" },
 ]
@@ -796,6 +800,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/8f/0a/d19a401d7bc2f578d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/d5/a1fc66aaf2ab46f7440cd66f8dec779b7a5c7f165784a58961cb61097aad/neuroconv-0.8.0-py3-none-any.whl", hash = "sha256:853582f5c16a4e10a3394daf1c8a4525e3323185596bfb080af9dbe8df1d3615", size = 366094, upload-time = "2025-08-22T02:56:56.911Z" },
 ]
+
+[[package]]
+name = "neurosift"
+version = "0.2.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e2/36/54575167fff6babdf0bf224f559bdba94ddbe16040856f66e844cad37695/neurosift-0.2.13.tar.gz", hash = "sha256:b2c116c4d8bcaad3f72c1ca766d05240431d74fb69db19ebb425b9885dfaaf09", size = 6655, upload-time = "2024-08-09T20:48:34.75Z" }
 
 [[package]]
 name = "numcodecs"
