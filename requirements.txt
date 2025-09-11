@@ -7,3 +7,4 @@ dandischema>=0.9
 nwbinspector>=0.5
 neuroconv
 brainstem_python_api_tools
+pyyaml

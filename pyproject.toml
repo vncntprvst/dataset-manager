@@ -12,7 +12,8 @@ dependencies = [
     "pynwb>=2.5",
     "dandischema>=0.9",
     "nwbinspector>=0.5",
-    "neuroconv"
+    "neuroconv",
+    "pyyaml"
 ]
 authors = [
     {name = "Vincent Prevosto", email = "prevosto@mit.edu"}

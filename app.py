@@ -1,9 +1,10 @@
 import io
 import os
 from datetime import datetime
-from typing import List, Dict, Tuple, Set
+from typing import List, Dict, Tuple, Set, Any
 
 import streamlit as st
+import yaml
 
 from data_bundling_ui.schema import (
     get_supported_experiment_types,
@@ -586,6 +587,79 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
 #     ]
 
 
+def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
+    """Render the project description form and return values."""
+
+    project_name = st.text_input(
+        "Project Name", value=initial.get("project_name", ""), key=f"pn_{initial.get('_mode', '')}"
+    )
+    experimenter = st.text_input(
+        "Experimenter", value=initial.get("experimenter", ""), key=f"ex_{initial.get('_mode', '')}"
+    )
+
+    exp_types = st.multiselect(
+        "Experimental types",
+        options=get_supported_experiment_types(),
+        default=initial.get("experimental_types", []),
+        key=f"et_{initial.get('_mode', '')}",
+    )
+
+    ACQ_OPTIONS = _acq_options()
+    init_acq = initial.get("acquisition_types", {})
+    selected_acq: Dict[str, List[str]] = {}
+    for et in exp_types:
+        acq = st.multiselect(
+            f"Acquisition type – {et}",
+            options=ACQ_OPTIONS.get(et, ["Other"]),
+            default=init_acq.get(et, []),
+            key=f"acq_{initial.get('_mode', '')}_{et}",
+        )
+        selected_acq[et] = acq
+
+    st.subheader("Raw data formats")
+    st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
+    signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
+    sig_key = f"_formats_signature_{initial.get('_mode', '')}"
+    rows_key = f"data_formats_rows_{initial.get('_mode', '')}"
+    if rows_key not in st.session_state or signature != st.session_state.get(sig_key):
+        st.session_state[rows_key] = initial.get(
+            "data_formats", _suggest_raw_formats(exp_types, selected_acq)
+        )
+        st.session_state[sig_key] = signature
+    data_formats = st.data_editor(
+        st.session_state[rows_key],
+        hide_index=True,
+        num_rows="dynamic",
+        column_config={
+            "Data type": st.column_config.TextColumn(required=True),
+            "Format": st.column_config.TextColumn(required=True),
+        },
+        key=f"data_formats_editor_{initial.get('_mode', '')}",
+    )
+    st.session_state[rows_key] = data_formats
+
+    st.subheader("Data organization")
+    st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
+    current_tree = initial.get("data_organization") or _build_tree_text(exp_types, data_formats)
+    tree_text = st.text_area(
+        "Tree editor",
+        value=current_tree,
+        height=240,
+        key=f"tree_editor_{initial.get('_mode', '')}",
+    )
+    st.caption("Preview")
+    st.code(tree_text)
+
+    return {
+        "project_name": project_name,
+        "experimenter": experimenter,
+        "experimental_types": exp_types,
+        "acquisition_types": selected_acq,
+        "data_formats": data_formats,
+        "data_organization": tree_text,
+    }
+
+
 def main() -> None:
     st.title("Dataset Manager for U19 Projects")
     st.caption("Describe your project and create scripts to package and publish your data.")
@@ -607,51 +681,40 @@ def main() -> None:
         st.header("Project description")
         st.write("Describe your project organization and data formats.")
 
-        # Experimental types and acquisition types
-        exp_types = st.multiselect(
-            "Experimental types",
-            options=get_supported_experiment_types(),
-            default=[],
-        )
+        project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        dataset_path = os.path.join(project_root, "dataset.yaml")
 
-        # Build acquisition type options per selected experiment type
-        ACQ_OPTIONS = _acq_options()
-        selected_acq: Dict[str, List[str]] = {}
-        for et in exp_types:
-            opts = ACQ_OPTIONS.get(et, ["Other"])
-            acq = st.multiselect(
-                f"Acquisition type – {et}", options=opts, default=[], key=f"acq_{et}"
-            )
-            selected_acq[et] = acq
+        tab_new, tab_edit = st.tabs(["Create new dataset", "Edit existing dataset"])
 
-        st.subheader("Raw data formats")
-        st.caption("Enter the data types and formats relevant to your project. Add/modify rows as needed.")
-        # Build dynamic suggestions based on current selection
-        signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
-        last_sig = st.session_state.get("_formats_signature")
-        if "data_formats_rows" not in st.session_state or signature != last_sig:
-            st.session_state["data_formats_rows"] = _suggest_raw_formats(exp_types, selected_acq)
-            st.session_state["_formats_signature"] = signature
-        data_formats = st.data_editor(
-            st.session_state["data_formats_rows"],
-            hide_index=True,
-            num_rows="dynamic",
-            column_config={
-                "Data type": st.column_config.TextColumn(required=True),
-                "Format": st.column_config.TextColumn(required=True),
-            },
-            key="data_formats_editor",
-        )
-        st.session_state["data_formats_rows"] = data_formats
+        with tab_new:
+            data = _project_form({"_mode": "new"})
+            if st.button("Save dataset", key="save_new"):
+                if not data["project_name"] or not data["experimenter"]:
+                    st.error("Project Name and Experimenter are required.")
+                else:
+                    os.makedirs(project_root, exist_ok=True)
+                    with open(dataset_path, "w", encoding="utf-8") as f:
+                        yaml.safe_dump(data, f)
+                    st.success(f"Saved to {dataset_path}")
 
-        st.subheader("Data organization")
-        st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
-        # Regenerate tree dynamically from current selections
-        current_tree = _build_tree_text(exp_types, data_formats)
-        tree_text = st.text_area("Tree editor", value=current_tree, height=240, key="tree_editor")
-        st.session_state["data_org_tree"] = tree_text
-        st.caption("Preview")
-        st.code(tree_text)
+        with tab_edit:
+            if os.path.exists(dataset_path):
+                try:
+                    with open(dataset_path, "r", encoding="utf-8") as f:
+                        loaded = yaml.safe_load(f) or {}
+                except Exception:
+                    loaded = {}
+                loaded["_mode"] = "edit"
+                data = _project_form(loaded)
+                if st.button("Save changes", key="save_edit"):
+                    if not data["project_name"] or not data["experimenter"]:
+                        st.error("Project Name and Experimenter are required.")
+                    else:
+                        with open(dataset_path, "w", encoding="utf-8") as f:
+                            yaml.safe_dump(data, f)
+                        st.success(f"Updated {dataset_path}")
+            else:
+                st.info(f"No dataset.yaml found in {project_root}.")
         return
 
     if mode == "template":
