@@ -1005,8 +1005,13 @@ def main() -> None:
 
         project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
         dataset_path = os.path.join(project_root, "dataset.yaml")
+        has_yaml = os.path.exists(dataset_path)
 
-        tab_new, tab_edit = st.tabs(["Create new dataset", "Edit existing dataset"])
+        # Auto-select default tab by ordering: the first tab is active on load
+        if has_yaml:
+            tab_edit, tab_new = st.tabs(["Edit existing dataset", "Create new dataset"])
+        else:
+            tab_new, tab_edit = st.tabs(["Create new dataset", "Edit existing dataset"])
 
         with tab_new:
             data = _project_form({"_mode": "new"})
