@@ -235,7 +235,8 @@ def _acq_options() -> Dict[str, List[str]]:
         # Align with schema.EXPERIMENT_TYPE_FIELDS key
         "Behavior and physiological measurements": _behavior_acq_types(),
         "Task/stimulus parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
-        # "Experimental metadata and notes": ["General"], # Always included, no acq types
+        # Always present modality; no specific acquisition subtypes required
+        "Experimental metadata and notes": ["General"],
     }
 
 
@@ -692,11 +693,11 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
     #         "Data type": "Cross-modal synchronization",
     #         "Format": "Timing/trigger files for multi-modal alignment",
     #     })
-    # Always include metadata/notes
-        suggestions.append({
-            "Data type": "Experimental metadata and notes",
-            "Format": "`.xlsx`, `.json`, and text notes (may be fetched from brainSTEM)"
-        })
+    # Always include metadata/notes (even if no modalities selected)
+    suggestions.append({
+        "Data type": "Experimental metadata and notes",
+        "Format": "`.xlsx`, `.json`, and text notes (may be fetched from brainSTEM)"
+    })
 
     # Deduplicate while preserving order
     seen: Set[Tuple[str, str]] = set()
@@ -915,6 +916,19 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     st.caption("Preview")
     st.code(tree_text)
 
+    # In 'Create new dataset', allow selecting the project root directory
+    project_root_dir: str | None = None
+    if initial.get("_mode") == "new":
+        st.subheader("Project root directory")
+        st.caption("Select the folder that contains your project's data. The dataset.yaml will be created there.")
+        default_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        project_root_dir = st.text_input(
+            "Folder path",
+            value=str(default_root),
+            placeholder="C:/path/to/project or /path/to/project",
+            key=f"rootdir_{initial.get('_mode', '')}",
+        )
+
     return {
         "project_name": project_name,
         "experimenter": experimenter,
@@ -922,6 +936,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         "acquisition_types": selected_acq,
         "data_formats": data_formats,
         "data_organization": tree_text,
+        "project_root_dir": project_root_dir,
     }
 
 
@@ -960,12 +975,27 @@ def main() -> None:
                 if not data["project_name"] or not data["experimenter"]:
                     st.error("Project Name and Experimenter are required.")
                 else:
-                    os.makedirs(project_root, exist_ok=True)
-                    with open(dataset_path, "w", encoding="utf-8") as f:
+                    # Use the chosen root directory if provided
+                    target_root = data.get("project_root_dir") or project_root
+                    target_path = os.path.join(target_root, "dataset.yaml")
+                    os.makedirs(target_root, exist_ok=True)
+                    with open(target_path, "w", encoding="utf-8") as f:
                         yaml.safe_dump(data, f)
-                    st.success(f"Saved to {dataset_path}")
+                    st.success(f"Saved to {target_path}")
 
         with tab_edit:
+            # Allow user to adjust project root unless provided via launcher
+            provided_env = "DM_PROJECT_ROOT" in os.environ
+            edit_root = st.text_input(
+                "Project root directory",
+                value=project_root,
+                help=(
+                    "Folder containing dataset.yaml. "
+                    + ("Set by launcher; you can still change it here." if provided_env else "")
+                ),
+                key="edit_root_dir",
+            )
+            dataset_path = os.path.join(edit_root, "dataset.yaml")
             if os.path.exists(dataset_path):
                 try:
                     with open(dataset_path, "r", encoding="utf-8") as f:
@@ -982,7 +1012,7 @@ def main() -> None:
                             yaml.safe_dump(data, f)
                         st.success(f"Updated {dataset_path}")
             else:
-                st.info(f"No dataset.yaml found in {project_root}.")
+                st.info(f"No dataset.yaml found in {edit_root}.")
         return
 
     if mode == "template":
