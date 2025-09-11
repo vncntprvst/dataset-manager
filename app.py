@@ -20,6 +20,7 @@ from dataset_manager.validation import (
     run_pynwb_validation,
     run_nwb_inspector,
     check_template_columns,
+    get_minimum_template_requirements,
 )
 
 
@@ -886,7 +887,7 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
     return tree
 
 def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
-    """Render the project description form and return values."""
+    """Render the project definition form and return values."""
 
     project_name = st.text_input(
         "Project Name", value=initial.get("project_name", ""), key=f"pn_{initial.get('_mode', '')}"
@@ -986,8 +987,8 @@ def main() -> None:
     # Sidebar: primary actions
     with st.sidebar:
         st.header("Actions")
-        st.button("Project description", use_container_width=True, on_click=_set_mode, args=("project",))
-        st.button("Descriptors", use_container_width=True, on_click=_set_mode, args=("template",))
+        st.button("Project definition", use_container_width=True, on_click=_set_mode, args=("project",))
+        st.button("Data description", use_container_width=True, on_click=_set_mode, args=("template",))
         st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
         st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
         st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
@@ -1000,7 +1001,7 @@ def main() -> None:
     mode = st.session_state.get("mode", "project")
 
     if mode == "project":
-        st.header("Project description")
+        st.header("Project definition")
         st.write("Describe your project organization and data formats.")
 
         project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
@@ -1063,17 +1064,23 @@ def main() -> None:
         import glob
         import pandas as pd
 
-        st.header("Descriptors")
-        st.caption("Create a new template or load and edit an existing one.")
+        st.header("Data description")
+        st.caption("Create a new data description template, or load and edit an existing one.")
 
         tab_create, tab_load = st.tabs(["Create new", "Load existing"])
 
         with tab_create:
-            exp_types = st.multiselect(
-                "Experimental types",
-                options=[t for t in get_supported_experiment_types() if t != "Experimental metadata and notes"],
-                default=[],
-            )
+            # Experimental types are defined on the Project page; show them read-only here
+            root = _project_root()
+            ds = _load_dataset_yaml(root)
+            exp_types: List[str] = list(ds.get("experimental_modalities", [])) if ds else []
+            st.subheader("Experimental modalities")
+            st.write(", ".join(exp_types) if exp_types else "(none)")
+            if not ds:
+                st.info("No dataset.yaml found in the project root. Define modalities on the Project page.")
+                if st.button("Open Project page", key="go_project_from_template"):
+                    _set_mode("project")
+                    st.experimental_rerun()
 
             # Optional: fetch metadata from brainSTEM.org
             st.checkbox("Fetch notes/metadata from brainSTEM.org", value=False, key="use_brainstem")
@@ -1137,6 +1144,33 @@ def main() -> None:
             fields = collect_required_fields(experiment_types=exp_types, include_dandi=True, include_nwb=True)
             user_fields, auto_fields = split_user_vs_auto(fields)
 
+            # If using brainSTEM, prefer auto-populating Subject and Session-related fields
+            if st.session_state.get("use_brainstem"):
+                try:
+                    req = get_minimum_template_requirements(exp_types)
+                except Exception:
+                    req = {"core_any": [], "subject_all": set(), "subject_any_one_of": []}
+                # Subject fields from validation rules
+                subject_fields = set(req.get("subject_all", set()))
+                for group in req.get("subject_any_one_of", []):
+                    subject_fields.update(group)
+                # Session fields: core groups that look like session_* fields
+                session_fields = set()
+                for group in req.get("core_any", []):
+                    group = set(group)
+                    if any(str(name).startswith("session_") for name in group):
+                        session_fields.update(group)
+                # Reassign to auto if present in fields
+                must_auto = [f for f in fields if f in subject_fields or f in session_fields]
+                # Remove from user_fields and ensure in auto_fields, preserving order
+                user_fields = [f for f in user_fields if f not in must_auto]
+                # Keep existing order and append any missing
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
+
             st.subheader("Columns Preview")
             c1, c2 = st.columns(2)
             with c1:
@@ -1156,7 +1190,11 @@ def main() -> None:
                 except Exception:
                     auto_fields = af_df["Column"].tolist()
 
-            dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
+            dataset_dir = st.text_input(
+                "Dataset directory (to count sessions)",
+                value=_project_root(),
+                placeholder="Folder with one subfolder per session",
+            )
             n_rows = 1
             if dataset_dir and os.path.isdir(dataset_dir):
                 try:
@@ -1252,7 +1290,11 @@ def main() -> None:
                 except Exception:
                     auto_fields = af_df["Column"].tolist()
 
-            dataset_dir = st.text_input("Dataset directory (to count sessions)", value="", placeholder="Folder with one subfolder per session")
+            dataset_dir = st.text_input(
+                "Dataset directory (to count sessions)",
+                value=_project_root(),
+                placeholder="Folder with one subfolder per session",
+            )
             n_rows = 1
             if dataset_dir and os.path.isdir(dataset_dir):
                 try:
@@ -1373,7 +1415,7 @@ def main() -> None:
         root = _project_root()
         ds = _load_dataset_yaml(root)
         if not ds:
-            st.warning("No dataset.yaml found. Create or edit your project description first.")
+            st.warning("No dataset.yaml found. Create or edit your project definition first.")
             return
 
         st.write(f"Project: {ds.get('project_name','')} · Experimenter: {ds.get('experimenter','')}")
