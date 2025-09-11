@@ -28,7 +28,7 @@ This application generates data collection templates tailored to specific experi
 
 ### Supported Experimental Types
 - **Electrophysiology** - Neural recordings
-- **Behavior tracking** - Movement and behavioral data
+- **Behavior and physiological measurements** - Movement and behavioral data
 - **Optogenetics** - Light-stimulation experiments
 - **Miniscope imaging** - Miniaturized microscopy
 - **Fiber photometry** - Fluorescence recordings

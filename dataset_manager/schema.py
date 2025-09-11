@@ -100,7 +100,7 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "cell_id",
         "electrode_name",
     ],
-    "Behavior tracking": [
+    "Behavior and physiological measurements": [
         "behavior_modality",
         "camera_count",
         "frame_rate_fps",
@@ -124,15 +124,15 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "emission_wavelength_nm",
         "camera_model",
     ],
-    # Additional organizational/annotation types
-    "Experimental metadata and notes": [
-        "device_name",
-        "device_description",
-        "device_manufacturer",
-        "protocol",
-        "experiment_notes",
-        "notes",
-    ],
+    # # Additional organizational/annotation types
+    # "Experimental metadata and notes": [
+    #     "device_name",
+    #     "device_description",
+    #     "device_manufacturer",
+    #     "protocol",
+    #     "experiment_notes",
+    #     "notes",
+    # ],
 }
 
 

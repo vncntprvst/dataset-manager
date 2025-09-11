@@ -6,13 +6,13 @@ from typing import List, Dict, Tuple, Set, Any
 import streamlit as st
 import yaml
 
-from data_bundling_ui.schema import (
+from dataset_manager.schema import (
     get_supported_experiment_types,
     collect_required_fields,
     split_user_vs_auto,
 )
-from data_bundling_ui.export import build_workbook_bytes, build_csv_bytes
-from data_bundling_ui.validation import (
+from dataset_manager.export import build_workbook_bytes, build_csv_bytes
+from dataset_manager.validation import (
     run_pynwb_validation,
     run_nwb_inspector,
     check_template_columns,
@@ -330,7 +330,7 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                     "Data type": f"Optical physiology – {a}",
                     "Format": fmt,
                 })
-        elif et == "Behavior measurements":
+        elif et == "Behavior and physiological measurements":
             for a in acqs or ["Video"]:
                 if a.lower() == "video":
                     suggestions.append({
@@ -537,7 +537,7 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
 
     if any(et.startswith("Electrophysiology") for et in exp_types):
         children.append("raw_ephys_data")
-    if "Behavior tracking" in exp_types and has_video:
+    if "Behavior and physiological measurements" in exp_types and has_video:
         children.append("raw_behavior_video")
     if "Optical Physiology" in exp_types:
         children.append("raw_imaging_ophys")
@@ -668,7 +668,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Actions")
         st.button("Project description", use_container_width=True, on_click=_set_mode, args=("project",))
-        st.button("Template management", use_container_width=True, on_click=_set_mode, args=("template",))
+        st.button("Descriptors", use_container_width=True, on_click=_set_mode, args=("template",))
         st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
         st.divider()
         if st.button("Quit", type="secondary", use_container_width=True):
@@ -721,7 +721,7 @@ def main() -> None:
         import glob
         import pandas as pd
 
-        st.header("Template management")
+        st.header("Descriptors")
         st.caption("Create a new template or load and edit an existing one.")
 
         tab_create, tab_load = st.tabs(["Create new", "Load existing"])
