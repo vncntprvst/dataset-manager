@@ -298,7 +298,7 @@ def _read_json(path: str) -> Any:
 def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
     project = cfg.get("project_name", "U19_Project")
     experimenter = cfg.get("experimenter", "Experimenter")
-    exp_types: List[str] = cfg.get("experimental_types", [])
+    exp_types: List[str] = cfg.get("experimental_modalities", [])
     acq_types: Dict[str, List[str]] = cfg.get("acquisition_types", {})
 
     # Best-effort mapping from acquisition labels to NeuroConv interfaces
@@ -679,19 +679,24 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
             })
 
-    # # Always include task parameters as a hint if ephys is selected
+    # # Always include task parameters if ephys is selected
     # if any(et.startswith("Electrophysiology") for et in exp_types):
     #     suggestions.append({
     #         "Data type": "Task/stimulus parameters",
     #         "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
     #     })
-    #
+    
     # # Add common analysis outputs if multiple modalities selected
     # if len(exp_types) > 1:
     #     suggestions.append({
     #         "Data type": "Cross-modal synchronization",
     #         "Format": "Timing/trigger files for multi-modal alignment",
     #     })
+    # Always include metadata/notes
+        suggestions.append({
+            "Data type": "Experimental metadata and notes",
+            "Format": "`.xlsx`, `.json`, and text notes (may be fetched from brainSTEM)"
+        })
 
     # Deduplicate while preserving order
     seen: Set[Tuple[str, str]] = set()
@@ -858,9 +863,9 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     exp_types = st.multiselect(
-        "Experimental types",
+        "Experimental modalities",
         options=get_supported_experiment_types(),
-        default=initial.get("experimental_types", []),
+        default=initial.get("experimental_modalities", []),
         key=f"et_{initial.get('_mode', '')}",
     )
 
@@ -913,7 +918,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "project_name": project_name,
         "experimenter": experimenter,
-        "experimental_types": exp_types,
+        "experimental_modalities": exp_types,
         "acquisition_types": selected_acq,
         "data_formats": data_formats,
         "data_organization": tree_text,
@@ -1298,7 +1303,7 @@ def main() -> None:
             return
 
         st.write(f"Project: {ds.get('project_name','')} · Experimenter: {ds.get('experimenter','')}")
-        st.write("Modalities:", ", ".join(ds.get("experimental_types", [])) or "(none)")
+        st.write("Modalities:", ", ".join(ds.get("experimental_modalities", [])) or "(none)")
 
         ing_dir = _ingestion_dir(root)
         exists = os.path.isdir(ing_dir) and any(p.endswith(".py") for p in os.listdir(ing_dir))
@@ -1310,7 +1315,7 @@ def main() -> None:
         script_name = _compose_script_name(
             ds.get("project_name", "project"),
             ds.get("experimenter", "user"),
-            ds.get("experimental_types", []),
+            ds.get("experimental_modalities", []),
         )
         st.text_input("Script filename", value=script_name, key="script_filename")
 
