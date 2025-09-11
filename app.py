@@ -14,6 +14,8 @@ from dataset_manager.schema import (
     get_supported_experiment_types,
     collect_required_fields,
     split_user_vs_auto,
+    get_nwb_subject_fields,
+    get_dandi_required_fields,
 )
 from dataset_manager.export import build_workbook_bytes, build_csv_bytes
 from dataset_manager.validation import (
@@ -1142,7 +1144,10 @@ def main() -> None:
 
             # DANDI/NWB always included
             fields = collect_required_fields(experiment_types=exp_types, include_dandi=True, include_nwb=True)
-            user_fields, auto_fields = split_user_vs_auto(fields)
+            
+            # Use brainSTEM-aware field splitting if brainSTEM is enabled
+            use_brainstem = st.session_state.get("use_brainstem", False)
+            user_fields, auto_fields = split_user_vs_auto(fields, use_brainstem=use_brainstem)
 
             # If using brainSTEM, prefer auto-populating Subject and Session-related fields
             if st.session_state.get("use_brainstem"):
@@ -1150,18 +1155,26 @@ def main() -> None:
                     req = get_minimum_template_requirements(exp_types)
                 except Exception:
                     req = {"core_any": [], "subject_all": set(), "subject_any_one_of": []}
-                # Subject fields from validation rules
+                # Subject fields from validation rules + dynamic NWB Subject args
                 subject_fields = set(req.get("subject_all", set()))
                 for group in req.get("subject_any_one_of", []):
                     subject_fields.update(group)
+                try:
+                    subject_fields.update(get_nwb_subject_fields())
+                except Exception:
+                    pass
                 # Session fields: core groups that look like session_* fields
                 session_fields = set()
                 for group in req.get("core_any", []):
                     group = set(group)
                     if any(str(name).startswith("session_") for name in group):
                         session_fields.update(group)
+                # Also populate experimenter from project configuration if present
+                project_derived = {"experimenter", "experimenters"}
                 # Reassign to auto if present in fields
-                must_auto = [f for f in fields if f in subject_fields or f in session_fields]
+                must_auto = [
+                    f for f in fields if (f in subject_fields) or (f in session_fields) or (f in project_derived)
+                ]
                 # Remove from user_fields and ensure in auto_fields, preserving order
                 user_fields = [f for f in user_fields if f not in must_auto]
                 # Keep existing order and append any missing
@@ -1183,6 +1196,10 @@ def main() -> None:
                     user_fields = uf_df["Column"].tolist()
             with c2:
                 st.caption("Auto-populated fields")
+                if st.session_state.get("use_brainstem"):
+                    st.caption("ℹ️ Subject/session metadata will be fetched from brainSTEM. Dataset fields from project configuration.")
+                else:
+                    st.caption("ℹ️ These fields can be auto-filled from file names, project configuration, or timestamps.")
                 af_df = pd.DataFrame({"Column": auto_fields})
                 af_edit = st.data_editor(af_df, hide_index=True)
                 try:
@@ -1206,6 +1223,46 @@ def main() -> None:
                 st.caption("Provide a dataset directory to set the number of rows automatically.")
 
             final_fields = user_fields + [f for f in auto_fields if f not in user_fields]
+
+            # Help for DANDI-required fields that are obscure
+            try:
+                dandi_required = set(get_dandi_required_fields())
+            except Exception:
+                dandi_required = set()
+            obscure = [
+                "assetsSummary",
+                "citation",
+                "contributor",
+                "id",
+                "license",
+                "manifestLocation",
+                "name",
+                "version",
+            ]
+            present_obscure_required = [f for f in obscure if f in dandi_required and f in final_fields]
+            if present_obscure_required:
+                with st.expander("About some required DANDI fields"):
+                    st.caption("These are part of the DANDI metadata model. Many are auto-managed by DANDI on publish; include only what you reasonably know.")
+                    help_map = {
+                        # Legacy obscure fields (should rarely appear now due to filtering)
+                        "assetsSummary": "Auto-generated summary of assets in the dandiset (counts/sizes). Usually managed by DANDI.",
+                        "citation": "Recommended citation text for the dandiset.",
+                        "contributor": "People/organizations who contributed; typically a list with name, role, and identifiers.",
+                        "id": "DANDI identifier (e.g., DANDI:000123). Often assigned by DANDI.",
+                        "license": "License under which the data are shared (e.g., CC-BY-4.0).",
+                        "manifestLocation": "Location(s) of the manifest used by DANDI. Usually auto-managed.",
+                        "name": "Title of the dandiset (project name).",
+                        "version": "Dandiset version (e.g., draft or 0.230915). Managed by DANDI.",
+                        # New descriptive field names
+                        "dataset_name": "Name/title of your dataset (auto-populated from project name).",
+                        "dataset_description": "Description of your dataset (auto-populated from project description).", 
+                        "contributor_name": "Name of the principal investigator or main contributor.",
+                        "contributor_role": "Role of the contributor (e.g., 'ContactPerson', 'Creator', 'Researcher').",
+                        "keywords": "Research keywords describing your study (e.g., 'electrophysiology', 'behavior', 'mouse').",
+                        "protocol": "Description of experimental protocols used.",
+                    }
+                    for f in present_obscure_required:
+                        st.write(f"- {f}: {help_map.get(f, '')}")
 
             # Minimal completeness check for NWB mapping
             chk = check_template_columns(final_fields, exp_types)
@@ -1271,7 +1328,9 @@ def main() -> None:
                 return
 
             st.subheader("Columns Preview (editable)")
-            user_fields, auto_fields = split_user_vs_auto(columns)
+            # Use brainSTEM-aware field splitting if brainSTEM is enabled  
+            use_brainstem = st.session_state.get("use_brainstem", False)
+            user_fields, auto_fields = split_user_vs_auto(columns, use_brainstem=use_brainstem)
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
@@ -1283,6 +1342,10 @@ def main() -> None:
                     user_fields = uf_df["Column"].tolist()
             with c2:
                 st.caption("Auto-populated fields")
+                if use_brainstem:
+                    st.caption("ℹ️ Subject/session metadata will be fetched from brainSTEM. Dataset fields from project configuration.")
+                else:
+                    st.caption("ℹ️ These fields can be auto-filled from file names, project configuration, or timestamps.")
                 af_df = pd.DataFrame({"Column": auto_fields})
                 af_edit = st.data_editor(af_df, hide_index=True)
                 try:

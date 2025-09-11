@@ -5,21 +5,14 @@ from typing import Dict, List, Set, Tuple
 
 
 # Curated defaults used if external libs are unavailable
+# Only essential DANDI fields for basic archive submission
 CURATED_DANDI_FIELDS: List[str] = [
-    "dandiset_id",
-    "dandiset_version",
-    "name",
-    "description",
-    "keywords",
-    "contributor_name",
-    "contributor_role",
-    "institution",
-    "species",
-    "anatomy",
-    "age",
-    "sex",
-    "session_start_time",
-    "protocol",
+    "dataset_name",  # Dataset/project name (maps to DANDI 'name' field)
+    "dataset_description",  # Dataset description (maps to DANDI 'description' field)
+    "contributor_name",  # Principal investigator/contributor
+    "contributor_role", # Role (e.g., "ContactPerson", "Creator")
+    "keywords",  # Research keywords
+    "protocol",  # Experimental protocol description
 ]
 
 # Common fields expected in U19 templates (order matters)
@@ -90,8 +83,8 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "num_channels",
         "probe_model",
         "reference_scheme",
-        # EEG/EMG folded into extracellular; include montage when applicable
-        "montage",
+        # EEG/EMG electrode configuration (montage = arrangement of electrodes for recording)
+        "electrode_configuration",
     ],
     "Electrophysiology – Intracellular": [
         "icephys_setup",
@@ -149,6 +142,25 @@ AUTO_FIELDS: List[str] = [
     "session_start_time(YYYY-MM-DD HH:MM)",
     "date_of_birth(YYYY-MM-DD)",
     "identifier",
+    # Dataset-level fields that can be auto-populated from project configuration
+    "dataset_name",  # From project name in dataset.yaml
+    "dataset_description",  # From project description
+]
+
+# Additional fields that should be auto-populated when brainSTEM is enabled
+BRAINSTEM_AUTO_FIELDS: List[str] = [
+    "subject_id",
+    "age", 
+    "subject_description",
+    "genotype",
+    "sex",
+    "species",
+    "subject_weight", 
+    "subject_strain",
+    "session_description",
+    "experimenters",
+    "session_start_time",
+    "institution",
 ]
 
 
@@ -156,18 +168,32 @@ def _try_import_dandi_fields() -> List[str] | None:
     try:
         # Lazy import; dandischema is optional
         from dandischema.models import Dandiset
-        from pydantic.fields import FieldInfo
-
-        # Build from model fields; choose a representative set
+        
+        # Only return user-relevant fields for session templates
+        # Use descriptive field names that can be mapped to DANDI fields later
+        session_relevant_fields = [
+            "dataset_name",  # Dataset/project name (maps to DANDI 'name' field)
+            "dataset_description",  # Dataset description (maps to DANDI 'description' field)
+            "contributor_name",  # Contributor information (maps to DANDI 'contributor' field)
+            "keywords",  # Research keywords
+        ]
+        
+        # Map our descriptive field names to actual DANDI model field names for verification
+        dandi_field_mapping = {
+            "dataset_name": "name",
+            "dataset_description": "description", 
+            "contributor_name": "contributor",
+            "keywords": "keywords"
+        }
+        
+        # Verify the underlying DANDI fields exist in the model
         model = Dandiset
-        required = []
-        for name, field in model.model_fields.items():  # type: ignore[attr-defined]
-            info: FieldInfo = field
-            if info.is_required():
-                required.append(name)
-        # Provide a stable ordering
-        required_sorted = sorted(set(required))
-        return required_sorted or None
+        available_fields = []
+        for our_field_name, dandi_field_name in dandi_field_mapping.items():
+            if dandi_field_name in model.model_fields:  # type: ignore[attr-defined]
+                available_fields.append(our_field_name)
+        
+        return available_fields if available_fields else None
     except Exception:
         return None
 
@@ -234,11 +260,129 @@ def collect_required_fields(
     return deduped
 
 
-def split_user_vs_auto(fields: List[str]) -> Tuple[List[str], List[str]]:
+def split_user_vs_auto(fields: List[str], use_brainstem: bool = False) -> Tuple[List[str], List[str]]:
+    """Split fields into user-provided vs auto-populated categories.
+    
+    Args:
+        fields: List of field names to categorize
+        use_brainstem: If True, treat subject/session metadata as auto-populated
+    
+    Returns:
+        Tuple of (user_fields, auto_fields)
+    """
     auto_set = set(AUTO_FIELDS)
+    if use_brainstem:
+        auto_set.update(BRAINSTEM_AUTO_FIELDS)
+    
     user_fields: List[str] = []
     auto_fields: List[str] = []
     for f in fields:
         (auto_fields if f in auto_set else user_fields).append(f)
     return user_fields, auto_fields
 
+
+# ---- Additional helpers for dynamic subject/DANDI fields ----
+def get_nwb_subject_fields() -> List[str]:
+    """Best-effort retrieval of PyNWB Subject field names.
+
+    Uses PyNWB docval metadata when available; otherwise falls back to a curated list.
+    """
+    try:
+        from pynwb.file import Subject  # type: ignore
+
+        if hasattr(Subject.__init__, "__docval__"):
+            args = Subject.__init__.__docval__.get("args", [])  # type: ignore[attr-defined]
+            names = [a.get("name") for a in args if a.get("name")]
+            # Filter out 'self' and duplicates
+            out: List[str] = []
+            seen: Set[str] = set()
+            for n in names:
+                if n and n != "self" and n not in seen:
+                    seen.add(n)
+                    out.append(n)
+            return out
+    except Exception:
+        pass
+    # Fallback subject-related fields commonly used in U19 templates
+    return [
+        "subject_id",
+        "age",
+        "subject_description",
+        "genotype",
+        "sex",
+        "species",
+        "subject_weight",
+        "subject_strain",
+        "date_of_birth(YYYY-MM-DD)",
+    ]
+
+
+def get_dandi_required_fields() -> List[str]:
+    """Return DANDI required top-level fields when dandischema is installed.
+
+    Falls back to curated set used elsewhere if the library is unavailable.
+    """
+    d = _try_import_dandi_fields()
+    if d:
+        return d
+    return CURATED_DANDI_FIELDS
+
+
+def get_dandi_field_mapping() -> Dict[str, str]:
+    """Return mapping from our descriptive field names to DANDI field names.
+    
+    This mapping should be used when exporting templates to DANDI format.
+    
+    Returns:
+        Dictionary mapping our field names -> DANDI field names
+    """
+    return {
+        # Dataset-level fields
+        "dataset_name": "name",
+        "dataset_description": "description",
+        "contributor_name": "contributor",
+        "contributor_role": "contributor",  # Part of contributor structure
+        "keywords": "keywords",
+        "protocol": "protocol",
+        # Note: contributor_name and contributor_role both map to the 'contributor' 
+        # field in DANDI, which expects a structured object with name and role
+    }
+
+
+def get_field_descriptions() -> Dict[str, str]:
+    """Return descriptions for template fields to help users understand what they mean.
+    
+    Returns:
+        Dictionary mapping field names to their descriptions
+    """
+    return {
+        # Electrophysiology fields
+        "electrode_configuration": (
+            "Electrode configuration/arrangement for EEG/EMG recordings. "
+            "Describes how electrodes are positioned and referenced relative to each other. "
+            "Examples: 'bipolar', 'monopolar', 'common average reference', 'Cz reference'. "
+            "Not typically used for intracranial/probe recordings."
+        ),
+        "reference_scheme": (
+            "Reference electrode configuration used for recording. "
+            "Examples: 'common average reference', 'single electrode reference', 'bipolar', 'ground'."
+        ),
+        "probe_model": (
+            "Model/type of recording probe or electrode array. "
+            "Examples: 'Neuropixels 1.0', 'Neuronexus A32', 'custom tetrode array'."
+        ),
+        "ephys_acq_system": (
+            "Electrophysiology data acquisition system used. "
+            "Examples: 'Intan RHD2000', 'Blackrock Cerebus', 'SpikeGLX', 'OpenEphys'."
+        ),
+        
+        # Dataset fields
+        "dataset_name": (
+            "Name/title of your dataset (auto-populated from project configuration). "
+            "This will be used as the dataset title when publishing to DANDI."
+        ),
+        "dataset_description": (
+            "Description of your dataset (auto-populated from project configuration). "
+            "Provides an overview of the research and experimental approach."
+        ),
+    }

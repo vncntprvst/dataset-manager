@@ -40,7 +40,7 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
         "Electrophysiology – Extracellular": {
             # Needed to create Device + ElectrodeGroup + infer channel table shape
             "required": {"ephys_acq_system", "sampling_rate_hz", "num_channels", "reference_scheme"},
-            "optional": {"probe_model", "montage"},
+            "optional": {"probe_model", "electrode_configuration"},
         },
         "Electrophysiology – Intracellular": {
             # Needed to create Device/ICEphys series with proper rates and identifiers
