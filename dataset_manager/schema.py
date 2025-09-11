@@ -125,6 +125,13 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "emission_wavelength_nm",
         "camera_model",
     ],
+    "Sync and Task events or parameters": [
+        # Task/stimulus parameters and synchronization events
+        "task_protocol",
+        "stimulus_type",
+        "sync_system",
+        "event_timing_precision_ms",
+    ],
     # Additional organizational/annotation type — always available as a modality
     # Keep field list minimal to avoid imposing structure; detailed metadata
     # can be captured in free-form notes or external systems (e.g., brainSTEM).

@@ -598,10 +598,21 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                 "Data type": "Stimulation pulse timestamps",
                 "Format": "Timestamps recorded by main acquisition system (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)",
             })
-            suggestions.append({
-                "Data type": "Stimulation parameters",
-                "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with wavelength/power/duration/etc.",
-            })
+            if a.lower() == "optogenetics":
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with wavelength/power/frequency/duration/etc.",
+                })
+            elif a.lower() == "electrical stimulation":
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with current/frequency/duration/etc.",
+                })
+            else:
+                suggestions.append({
+                    "Data type": "Stimulation parameters",
+                    "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`)",
+                })
         elif et == "Sync and Task events or parameters":    
             for a in acqs or ["TTL events"]:
                 if a.lower() == "ttl events":
@@ -615,6 +626,11 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                     suggestions.append({
                         "Data type": f"Task events, conditions and parameters – {a}",
                         "Format": fmt,
+                    })
+                else:
+                    suggestions.append({
+                        "Data type": f"Task events and parameters – {a}",
+                        "Format": "Behavioral task files if present (`.csv`, `.mat`, `.json`)",
                     })
         elif et == "Behavior and physiological measurements":
             for a in acqs or ["Video"]:
