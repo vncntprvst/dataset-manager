@@ -106,7 +106,8 @@ EXPERIMENT_TYPE_FIELDS: Dict[str, List[str]] = {
         "frame_rate_fps",
         "tracking_software",
     ],
-    "Optogenetics": [
+    "Stimulations": [
+        # Keep existing field names for backward compatibility with templates/validation
         "opto_device_model",
         "stimulation_wavelength_nm",
         "stimulation_power_mw",

@@ -52,8 +52,8 @@ def get_minimum_template_requirements(experiment_types: List[str]) -> Dict[str, 
             "required": {"frame_rate_fps"},
             "optional": {"camera_count", "tracking_software", "behavior_modality"},
         },
-        "Optogenetics": {
-            # Needed to define opto Device and basic stimulation parameters
+        "Stimulations": {
+            # Needed to define stimulation Device and basic parameters
             "required": {"opto_device_model", "stimulation_wavelength_nm"},
             "optional": {"stimulation_power_mw", "stimulation_protocol"},
         },

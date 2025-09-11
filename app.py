@@ -234,7 +234,8 @@ def _acq_options() -> Dict[str, List[str]]:
         "Optical Physiology": _ophys_acq_types(),
         # Align with schema.EXPERIMENT_TYPE_FIELDS key
         "Behavior and physiological measurements": _behavior_acq_types(),
-        "Task/stimulus parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
+        "Stimulations": ["Optogenetics", "Electrical stimulation", "Other"],
+        "Sync and Task events or parameters": ["TTL events", "Bpod", "Bonsai", "Harp", "Other behavioral task files"],
         # Always present modality; no specific acquisition subtypes required
         "Experimental metadata and notes": ["General"],
     }
@@ -591,6 +592,30 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                     "Data type": f"Optical physiology – {a}",
                     "Format": fmt,
                 })
+        elif et == "Stimulations":
+            # Twofold data: timestamps and parameters
+            suggestions.append({
+                "Data type": "Stimulation pulse timestamps",
+                "Format": "Timestamps recorded by main acquisition system (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)",
+            })
+            suggestions.append({
+                "Data type": "Stimulation parameters",
+                "Format": "Include details in metadata/notes (e.g., `.xlsx`/`.json`) with wavelength/power/duration/etc.",
+            })
+        elif et == "Sync and Task events or parameters":    
+            for a in acqs or ["TTL events"]:
+                if a.lower() == "ttl events":
+                    fmt = "TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)"
+                    suggestions.append({
+                        "Data type": "Synchronization TTL events",
+                        "Format": fmt,
+                    })
+                elif a.lower() in ["bpod", "bonsai", "harp"]:
+                    fmt = f"{a} task files (`.csv`, `.mat`, `.json`)"
+                    suggestions.append({
+                        "Data type": f"Task events, conditions and parameters – {a}",
+                        "Format": fmt,
+                    })
         elif et == "Behavior and physiological measurements":
             for a in acqs or ["Video"]:
                 if a.lower() == "video":
@@ -628,64 +653,65 @@ def _suggest_raw_formats(exp_types: List[str], acq_map: Dict[str, List[str]]) ->
                         "Data type": f"Behavior tracking – {a}",
                         "Format": "Digital/analog behavioral data",
                     })
-        # elif et == "Optogenetics":
+        # elif et == "Miniscope imaging":
         #     suggestions.append({
-        #         "Data type": "Optogenetic stimulation protocols",
-        #         "Format": "Stimulation parameters in CSV/JSON/MAT files"
+        #         "Data type": "Miniscope imaging", 
+        #         "Format": "Raw `.avi`/`.mp4` videos with timestamp files"
         #     })
         #     suggestions.append({
-        #         "Data type": "Optogenetic device settings", 
-        #         "Format": "Laser/LED parameters and timing files"
+        #         "Data type": "Miniscope metadata",
+        #         "Format": "Camera settings and calibration files"
         #     })
-        elif et == "Miniscope imaging":
-            suggestions.append({
-                "Data type": "Miniscope imaging", 
-                "Format": "Raw `.avi`/`.mp4` videos with timestamp files"
-            })
-            suggestions.append({
-                "Data type": "Miniscope metadata",
-                "Format": "Camera settings and calibration files"
-            })
-        elif et == "Fiber photometry":
-            suggestions.append({
-                "Data type": "Fiber photometry signals", 
-                "Format": "Time-series CSV/MAT with fluorescence data"
-            })
-            suggestions.append({
-                "Data type": "Photometry hardware settings",
-                "Format": "Excitation/emission wavelength parameters"
-            })
-        elif et == "2p imaging":
-            suggestions.append({
-                "Data type": "Two-photon imaging", 
-                "Format": "TIFF stacks/HDF5 with acquisition metadata"
-            })
-            suggestions.append({
-                "Data type": "2p microscope settings",
-                "Format": "Laser power, objective, and timing parameters"
-            })
-        elif et == "Widefield imaging":
-            suggestions.append({
-                "Data type": "Widefield imaging", 
-                "Format": "TIFF stacks/videos with illumination metadata"
-            })
+        # elif et == "Fiber photometry":
+        #     suggestions.append({
+        #         "Data type": "Fiber photometry signals", 
+        #         "Format": "Time-series CSV/MAT with fluorescence data"
+        #     })
+        #     suggestions.append({
+        #         "Data type": "Photometry hardware settings",
+        #         "Format": "Excitation/emission wavelength parameters"
+        #     })
+        # elif et == "2p imaging":
+        #     suggestions.append({
+        #         "Data type": "Two-photon imaging", 
+        #         "Format": "TIFF stacks/HDF5 with acquisition metadata"
+        #     })
+        #     suggestions.append({
+        #         "Data type": "2p microscope settings",
+        #         "Format": "Laser power, objective, and timing parameters"
+        #     })
+        # elif et == "Widefield imaging":
+        #     suggestions.append({
+        #         "Data type": "Widefield imaging", 
+        #         "Format": "TIFF stacks/videos with illumination metadata"
+        #     })
         # elif et == "Experimental metadata and notes":
         #     suggestions.append({
         #         "Data type": "Experimental metadata and notes", 
         #         "Format": "`.xlsx`, `.json`, and text notes"
         #     })
-        elif et == "Task/stimulus parameters":    
-            suggestions.append({
-                "Data type": "Task/stimulus parameters",
-                "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
-            })
 
-    # # Always include task parameters if ephys is selected
-    # if any(et.startswith("Electrophysiology") for et in exp_types):
-    #     suggestions.append({
-    #         "Data type": "Task/stimulus parameters",
-    #         "Format": "TTL events, behavioral task files (`.csv`, `.mat`, `.json`)",
-    #     })
+
+    # # # Always include task/stimulus parameters if Stimulations is selected
+    # if "Stimulations" in exp_types:
+    #     # suggestions.append({
+    #     #     "Data type": "Task/stimulus parameters",
+    #     #     "Format": "TTL stimulus events. Other TTLs and behavioral task files if present (`.csv`, `.mat`, `.json`)",
+    #     # })
+    #     # Check if already added above
+    #     if not any(row.get("Data type", "") == "Task/stimulus parameters" for row in suggestions):
+    #         suggestions.append({
+    #             "Data type": "Task/stimulus parameters",
+    #             "Format": "TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)",
+    #         })
+    #     else:
+    #         # Update existing entry to include stimulus events
+    #         for row in suggestions:
+    #             if row.get("Data type", "") == "Task/stimulus parameters":
+    #                 existing_format = row.get("Format", "")
+    #                 if "TTL stimulus events" not in existing_format:
+    #                     row["Format"] = existing_format + "; TTL events recorded by acquisition (e.g., Intan) or separate record of timestamps (e.g., `.csv`/`.mat`/`.txt`)"
+    #                 break
     
     # # Add common analysis outputs if multiple modalities selected
     # if len(exp_types) > 1:
@@ -834,24 +860,14 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
             ordered.append(name)
 
     tree = (
-        "Subject\n"
+        "SUBJECT_ID\n"
         "├── YYYY_MM_DD\n"
-        "│   ├── SUBJECT_SESSION_ID\n"
+        "│   ├── SESSION_ID\n"
     )
     for i, c in enumerate(ordered):
         connector = "│   │   ├── " if i < len(ordered) - 1 else "│   │   └── "
         tree += connector + c + "\n"
     return tree
-
-# def _example_formats_df() -> List[Dict[str, str]]:
-#     return [
-#         {"Data type": "Electrophysiology recordings", "Format": "Blackrock `.nsx`,  `.ccf`, `.nev` files"},
-#         {"Data type": "Behavior videos", "Format": "MP4 recordings"},
-#         {"Data type": "Task parameters", "Format": "TTLs extracted from Blackrock files, `.csv`, `.mat`, `.dat` files"},
-#         {"Data type": "Optogenetic stimulation settings", "Format": "Text, `.csv` files"},
-#         {"Data type": "Experimental metadata and notes", "Format": "`.xlsx`, `.json`, text"},
-#     ]
-
 
 def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     """Render the project description form and return values."""
@@ -863,9 +879,11 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         "Experimenter", value=initial.get("experimenter", ""), key=f"ex_{initial.get('_mode', '')}"
     )
 
+    # Hide 'Experimental metadata and notes' from selection; it's always included implicitly
+    options_all = [t for t in get_supported_experiment_types() if t != "Experimental metadata and notes"]
     exp_types = st.multiselect(
         "Experimental modalities",
-        options=get_supported_experiment_types(),
+        options=options_all,
         default=initial.get("experimental_modalities", []),
         key=f"et_{initial.get('_mode', '')}",
     )
@@ -887,10 +905,15 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     signature = (tuple(sorted(exp_types)), tuple((k, tuple(v)) for k, v in sorted(selected_acq.items())))
     sig_key = f"_formats_signature_{initial.get('_mode', '')}"
     rows_key = f"data_formats_rows_{initial.get('_mode', '')}"
-    if rows_key not in st.session_state or signature != st.session_state.get(sig_key):
-        st.session_state[rows_key] = initial.get(
-            "data_formats", _suggest_raw_formats(exp_types, selected_acq)
-        )
+    
+    # Force update if experimental types or acquisition types changed
+    needs_update = (
+        rows_key not in st.session_state or 
+        signature != st.session_state.get(sig_key)
+    )
+    
+    if needs_update:
+        st.session_state[rows_key] = _suggest_raw_formats(exp_types, selected_acq)
         st.session_state[sig_key] = signature
     data_formats = st.data_editor(
         st.session_state[rows_key],
@@ -1027,7 +1050,7 @@ def main() -> None:
         with tab_create:
             exp_types = st.multiselect(
                 "Experimental types",
-                options=get_supported_experiment_types(),
+                options=[t for t in get_supported_experiment_types() if t != "Experimental metadata and notes"],
                 default=[],
             )
 
