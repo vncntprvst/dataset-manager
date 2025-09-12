@@ -16,6 +16,8 @@ from dataset_manager.schema import (
     split_user_vs_auto,
     get_nwb_subject_fields,
     get_dandi_required_fields,
+    get_field_descriptions,
+    get_field_category,
 )
 from dataset_manager.export import build_workbook_bytes, build_csv_bytes
 from dataset_manager.validation import (
@@ -1185,27 +1187,77 @@ def main() -> None:
                         auto_set.add(f)
 
             st.subheader("Columns Preview")
+            desc_map = get_field_descriptions()
+
+            def build_field_df(fields: List[str]) -> pd.DataFrame:
+                rows = [
+                    {
+                        "Field": f,
+                        "Category": get_field_category(f),
+                        "Description": desc_map.get(f, ""),
+                    }
+                    for f in fields
+                ]
+                df = pd.DataFrame(rows)
+                return df.sort_values(["Category", "Field"]).reset_index(drop=True)
+
+            color_map = {
+                "Subject": "#e6f7ff",
+                "Session": "#fff5e6",
+                "Experiment": "#e6ffe6",
+                "Institution": "#f9e6ff",
+                "Dataset": "#ffe6e6",
+                "Other": "#f0f0f0",
+            }
+
+            def style_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+                def _color_row(row):
+                    color = color_map.get(row["Category"], "#ffffff")
+                    return [f"background-color: {color}"] * len(row)
+
+                return df.style.apply(_color_row, axis=1)
+
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
-                uf_df = pd.DataFrame({"Column": user_fields})
-                uf_edit = st.data_editor(uf_df, hide_index=True)
+                uf_df = build_field_df(user_fields)
+                uf_edit = st.data_editor(
+                    style_df(uf_df),
+                    hide_index=True,
+                    column_config={
+                        "Field": st.column_config.TextColumn("Field"),
+                        "Category": st.column_config.TextColumn("Category", disabled=True),
+                        "Description": st.column_config.TextColumn("Description", disabled=True),
+                    },
+                )
                 try:
-                    user_fields = uf_edit["Column"].tolist()
+                    user_fields = uf_edit["Field"].tolist()
                 except Exception:
-                    user_fields = uf_df["Column"].tolist()
+                    user_fields = uf_df["Field"].tolist()
             with c2:
                 st.caption("Auto-populated fields")
                 if st.session_state.get("use_brainstem"):
-                    st.caption("ℹ️ Subject/session metadata will be fetched from brainSTEM. Dataset fields from project configuration.")
+                    st.caption(
+                        "ℹ️ Subject/session metadata will be fetched from brainSTEM. Dataset fields from project configuration."
+                    )
                 else:
-                    st.caption("ℹ️ These fields can be auto-filled from file names, project configuration, or timestamps.")
-                af_df = pd.DataFrame({"Column": auto_fields})
-                af_edit = st.data_editor(af_df, hide_index=True)
+                    st.caption(
+                        "ℹ️ These fields can be auto-filled from file names, project configuration, or timestamps."
+                    )
+                af_df = build_field_df(auto_fields)
+                af_edit = st.data_editor(
+                    style_df(af_df),
+                    hide_index=True,
+                    column_config={
+                        "Field": st.column_config.TextColumn("Field"),
+                        "Category": st.column_config.TextColumn("Category", disabled=True),
+                        "Description": st.column_config.TextColumn("Description", disabled=True),
+                    },
+                )
                 try:
-                    auto_fields = af_edit["Column"].tolist()
+                    auto_fields = af_edit["Field"].tolist()
                 except Exception:
-                    auto_fields = af_df["Column"].tolist()
+                    auto_fields = af_df["Field"].tolist()
 
             dataset_dir = st.text_input(
                 "Dataset directory (to count sessions)",
