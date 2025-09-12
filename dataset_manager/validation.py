@@ -199,16 +199,37 @@ def run_nwb_inspector(path: str, *, config_path: str | None = None, config_text:
     """
     try:
         # Try multiple entry points to handle version variance
+        import importlib, sys  # type: ignore
+        inspect_nwb = None  # type: ignore
         try:
-            from nwbinspector import inspect_nwb  # type: ignore
+            from nwbinspector import inspect_nwb as _insp  # type: ignore
+            inspect_nwb = _insp
         except Exception:
             inspect_nwb = None  # type: ignore
 
         if inspect_nwb is None:
-            try:
-                from nwbinspector.inspector import inspect_nwb  # type: ignore
-            except Exception:
-                return {"status": "missing"}
+            # Probe a few possible module paths and symbol names
+            candidates = [
+                ("nwbinspector", "inspect_nwb"),
+                ("nwbinspector.inspector", "inspect_nwb"),
+                ("nwbinspector.nwbinspector", "inspect_nwb"),
+                ("nwbinspector", "inspect_all"),
+            ]
+            for mod_name, attr in candidates:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    func = getattr(mod, attr, None)
+                    if callable(func):
+                        inspect_nwb = func  # type: ignore
+                        break
+                except Exception:
+                    continue
+            if inspect_nwb is None:
+                return {
+                    "status": "missing",
+                    "detail": "Could not locate inspect_nwb in installed nwbinspector",
+                    "python": sys.executable,
+                }
 
         # Try to load a user-provided config if any
         inspector_config = None
@@ -288,8 +309,9 @@ def run_nwb_inspector(path: str, *, config_path: str | None = None, config_text:
             "by_severity": dict(sev_counter),
             "messages": simplified,
         }
-    except ModuleNotFoundError:
-        return {"status": "missing"}
+    except ModuleNotFoundError as e:
+        import sys
+        return {"status": "missing", "detail": str(e), "python": sys.executable}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

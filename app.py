@@ -268,8 +268,9 @@ def _sanitize_name(s: str) -> str:
 
 
 def _compose_script_name(project_name: str, experimenter: str, modalities: List[str]) -> str:
-    mod = "__".join(_sanitize_name(m) for m in modalities) or "modalities"
-    base = f"{_sanitize_name(project_name)}__{_sanitize_name(experimenter)}__{mod}.py"
+    # Keep filenames short: avoid embedding modality names which can be long
+    stamp = datetime.now().strftime("%Y%m%d")
+    base = f"{_sanitize_name(project_name)}__{_sanitize_name(experimenter)}__ingest_{stamp}.py"
     return base
 
 
@@ -1486,10 +1487,11 @@ def main() -> None:
         st.header("Actions")
         st.button("Project definition", use_container_width=True, on_click=_set_mode, args=("project",))
         st.button("Data description", use_container_width=True, on_click=_set_mode, args=("template",))
-        st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
         st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
         st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
-        st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
+        st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
+        # Temporarily hide Neurosift until upstream fix is available
+        # st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
         st.divider()
         if st.button("Quit", type="secondary", use_container_width=True):
             os._exit(0)
@@ -1700,8 +1702,11 @@ def main() -> None:
                         row["Value"] = brainstem_vals.get(f, "")
                     rows.append(row)
                 df = pd.DataFrame(rows)
-                sort_cols = ["Category", "Field"]
-                return df.sort_values(sort_cols).reset_index(drop=True)
+                # Priority order: Dataset, Subject, Session, Experiment, then others alphabetically
+                priority = {"Dataset": 0, "Subject": 1, "Session": 2, "Experiment": 3}
+                df["CatRank"] = df["Category"].map(priority).fillna(9_999).astype(int)
+                df = df.sort_values(["CatRank", "Category", "Field"]).drop(columns=["CatRank"]).reset_index(drop=True)
+                return df
 
             color_map = {
                 "Subject": "#e6f7ff",
@@ -1859,6 +1864,16 @@ def main() -> None:
                     file_name=f"{base_name}_{timestamp}.xlsx",
                     mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
                 )
+                # Save to project root convenience
+                if st.button("Save .xlsx to project root", key="save_xlsx_to_root"):
+                    try:
+                        root = _project_root()
+                        out_path = os.path.join(root, f"{base_name}_{timestamp}.xlsx")
+                        with open(out_path, "wb") as f:
+                            f.write(bytes_xlsx.getvalue())
+                        st.success(f"Saved to {out_path}")
+                    except Exception as e:
+                        st.error(f"Failed to save .xlsx: {e}")
             if bytes_csv is not None:
                 st.download_button(
                     label="Download template (.csv)",
@@ -1866,6 +1881,15 @@ def main() -> None:
                     file_name=f"{base_name}_{timestamp}.csv",
                     mime="text/csv",
                 )
+                if st.button("Save .csv to project root", key="save_csv_to_root"):
+                    try:
+                        root = _project_root()
+                        out_path = os.path.join(root, f"{base_name}_{timestamp}.csv")
+                        with open(out_path, "wb") as f:
+                            f.write(bytes_csv.getvalue())
+                        st.success(f"Saved to {out_path}")
+                    except Exception as e:
+                        st.error(f"Failed to save .csv: {e}")
 
         with tab_load:
             tmpl_paths = sorted(glob.glob("templates/*.xlsx"))
@@ -1962,10 +1986,29 @@ def main() -> None:
     if mode == "validate":
         st.header("NWB Validation")
         st.caption(
-            "Upload an .nwb file to run PyNWB validation and NWB Inspector best-practice checks."
+            "Upload an .nwb file or specify a local file path to run PyNWB validation and NWB Inspector checks."
         )
 
-        uploaded = st.file_uploader("NWB file", type=["nwb"]) 
+        # Remember last-used local path in session state
+        local_key = "validate_local_path"
+        default_local = st.session_state.get(local_key, "")
+        local_path = st.text_input(
+            "Path to .nwb file",
+            value=default_local,
+            placeholder="C:/path/to/file.nwb or /path/to/file.nwb",
+        )
+        # OS file dialog (local only)
+        if st.button("Browse…", key="browse_local_nwb"):
+            try:
+                import tkinter as tk  # type: ignore
+                from tkinter import filedialog  # type: ignore
+                root = tk.Tk(); root.withdraw()
+                sel = filedialog.askopenfilename(title="Select NWB file", filetypes=[("NWB files", "*.nwb"), ("All files", "*.*")])
+                if sel:
+                    st.session_state[local_key] = sel
+                    local_path = sel
+            except Exception as e:
+                st.warning(f"Browse not available: {e}")
         config_upload = st.file_uploader("Optional: NWB Inspector config (YAML)", type=["yml", "yaml"], key="inspector_cfg")
         cfg_text: str | None = None
         if config_upload is not None:
@@ -1974,17 +2017,19 @@ def main() -> None:
                 st.caption("Inspector config loaded.")
             except Exception:
                 st.warning("Could not read config; proceeding without it.")
-        if uploaded is not None:
-            import tempfile
+        target_path: str | None = None
+        tmp_path: str | None = None
+        if local_path:
+            if os.path.isfile(local_path):
+                target_path = local_path
+            else:
+                st.warning("Local path does not exist or is not a file.")
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp:
-                tmp.write(uploaded.read())
-                tmp_path = tmp.name
-
+        if target_path is not None:
             try:
                 # Always run both checks
                 st.write("Running PyNWB validation…")
-                vres = run_pynwb_validation(tmp_path)
+                vres = run_pynwb_validation(target_path)
                 if vres.get("status") == "missing":
                     st.warning("PyNWB not installed; skipping PyNWB validation.")
                 elif vres.get("ok"):
@@ -1995,9 +2040,16 @@ def main() -> None:
                         st.code("\n".join(vres["errors"])[:4000])
 
                 st.write("Running NWB Inspector…")
-                ires = run_nwb_inspector(tmp_path, config_text=cfg_text)
+                ires = run_nwb_inspector(target_path, config_text=cfg_text)
                 if ires.get("status") == "missing":
-                    st.warning("nwbinspector not installed; skipping Inspector checks.")
+                    detail = ires.get("detail", "")
+                    py = ires.get("python", "")
+                    msg = "nwbinspector not available in this Python environment."
+                    if py:
+                        msg += f" Using: {py}"
+                    if detail:
+                        msg += f" ({detail})"
+                    st.warning(msg)
                 else:
                     total = ires.get("count", 0)
                     by_sev = ires.get("by_severity", {})
@@ -2020,12 +2072,13 @@ def main() -> None:
                             ]
                         )
             finally:
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
+                if tmp_path is not None:
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
         else:
-            st.info("Upload a .nwb file to start validation.")
+            st.info("Upload a file or provide a local path to start validation.")
         return
 
     if mode == "scripts":
@@ -2149,30 +2202,78 @@ def main() -> None:
     if mode == "neurosift":
         st.header("Neurosift Viewer")
         st.caption("Open a local NWB file in the Neurosift app.")
-        path = st.text_input("Path to local .nwb file", value="", placeholder="/path/to/file.nwb")
-        uploaded = st.file_uploader("Or upload an NWB file to a temp path", type=["nwb"], key="ns_upl")
-        tmp_path: str | None = None
-        if uploaded is not None:
-            import tempfile
+
+        ns_key = "ns_local_path"
+        default_path = st.session_state.get(ns_key, "")
+        path = st.text_input("Path to local .nwb file", value=default_path, placeholder="/path/to/file.nwb")
+        if st.button("Browse…", key="browse_neurosift"):
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp:
-                    tmp.write(uploaded.read())
-                    tmp_path = tmp.name
-                st.info(f"Saved upload to {tmp_path}")
+                import tkinter as tk  # type: ignore
+                from tkinter import filedialog  # type: ignore
+                root = tk.Tk(); root.withdraw()
+                sel = filedialog.askopenfilename(title="Select NWB file", filetypes=[("NWB files", "*.nwb"), ("All files", "*.*")])
+                if sel:
+                    st.session_state[ns_key] = sel
+                    path = sel
             except Exception as e:
-                st.error(f"Failed to save uploaded file: {e}")
-        target = tmp_path or path
+                st.warning(f"Browse not available: {e}")
+
         if st.button("Open in Neurosift"):
-            if not target:
-                st.error("Provide a path or upload an NWB file.")
+            p = (path or "").strip()
+            if not p:
+                st.error("Provide a local .nwb file path.")
+            elif not os.path.isfile(p):
+                st.error("File not found. Check the path and try again.")
             else:
-                try:
-                    # Launch neurosift as a detached process
-                    subprocess.Popen(["neurosift", "view-nwb", target])
-                    st.success("Launched Neurosift. Check your desktop window.")
-                except Exception as e:
-                    st.error(f"Failed to launch neurosift: {e}")
+                st.session_state[ns_key] = p
+                # Try a few invocation variants to avoid Windows symlink issues
+                attempts = [
+                    ["neurosift", "view-nwb", p],
+                    ["neurosift", "view-nwb", "--no-symlink", p],
+                ]
+                last_err = None
+                for cmd in attempts:
+                    try:
+                        st.caption("Command: " + " ".join(cmd))
+                        res = subprocess.run(cmd, check=False, capture_output=True, text=True)
+                        if res.returncode == 0:
+                            st.success("Launched Neurosift. Check your desktop window.")
+                            break
+                        else:
+                            last_err = res.stderr or res.stdout
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                else:
+                    hint = " If this is Windows, this may be due to symlink privilege. Try running a Terminal as Administrator or enable Developer Mode; alternatively, ensure your Neurosift version supports --no-symlink."
+                    st.error("Failed to launch Neurosift." + (f" Details: {last_err}" if last_err else "") + hint)
         return
+
+        # Troubleshooting tools
+        st.subheader("Troubleshooting")
+        if st.button("Test Neurosift CLI", key="test_neurosift_cli"):
+            import shutil, sys
+            ns_path = shutil.which("neurosift")
+            st.write("neurosift on PATH:", ns_path or "(not found)")
+            st.write("Python executable:", sys.executable)
+            # Version
+            try:
+                resv = subprocess.run(["neurosift", "--version"], capture_output=True, text=True)
+                st.write("--version rc=", resv.returncode)
+                st.code((resv.stdout or resv.stderr)[:2000])
+            except Exception as e:
+                st.warning(f"Failed to run 'neurosift --version': {e}")
+            # Help for view-nwb
+            try:
+                resh = subprocess.run(["neurosift", "view-nwb", "--help"], capture_output=True, text=True)
+                st.write("view-nwb --help rc=", resh.returncode)
+                st.code((resh.stdout or resh.stderr)[:4000])
+                if "--no-symlink" in (resh.stdout or ""):
+                    st.info("Detected support for --no-symlink.")
+                else:
+                    st.info("--no-symlink not detected in help output; your version may not support it.")
+            except Exception as e:
+                st.warning(f"Failed to run 'neurosift view-nwb --help': {e}")
 
 
 if __name__ == "__main__":

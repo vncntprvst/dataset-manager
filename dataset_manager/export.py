@@ -39,12 +39,37 @@ def build_workbook_bytes(columns: List[str], n_rows: int, rows: Optional[List[Di
             df = pd.DataFrame(columns=columns, data=[[None] * len(columns) for _ in range(n_rows)])
         bio = io.BytesIO()
         # Prefer openpyxl; fall back to xlsxwriter
+        used_engine = None
         try:
             df.to_excel(bio, index=False, engine="openpyxl")
+            used_engine = "openpyxl"
         except Exception:
             df.to_excel(bio, index=False, engine="xlsxwriter")
-        bio.seek(0)
-        return bio
+            used_engine = "xlsxwriter"
+        # Attempt header styling and freeze panes using openpyxl
+        try:
+            from openpyxl import load_workbook  # type: ignore
+            from openpyxl.styles import PatternFill, Font  # type: ignore
+
+            bio.seek(0)
+            wb = load_workbook(bio)
+            ws = wb.active
+            # Freeze first row
+            ws.freeze_panes = "A2"
+            # Style header row (row 1)
+            header_fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")  # yellow
+            header_font = Font(bold=True)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+            bio2 = io.BytesIO()
+            wb.save(bio2)
+            bio2.seek(0)
+            return bio2
+        except Exception:
+            # If styling fails, return the raw workbook
+            bio.seek(0)
+            return bio
     except Exception as e:
         # Last-chance: minimal openpyxl without pandas
         try:
@@ -53,13 +78,22 @@ def build_workbook_bytes(columns: List[str], n_rows: int, rows: Optional[List[Di
             wb = Workbook()
             ws = wb.active
             ws.title = "Template"
+            # Header with style
+            from openpyxl.styles import PatternFill, Font  # type: ignore
+            header_fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")  # yellow
+            header_font = Font(bold=True)
             ws.append(columns)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
             if rows:
                 for r in rows:
                     ws.append([r.get(c, None) for c in columns])
             else:
                 for _ in range(n_rows):
                     ws.append([None] * len(columns))
+            # Freeze top row
+            ws.freeze_panes = "A2"
             bio = io.BytesIO()
             wb.save(bio)
             bio.seek(0)
