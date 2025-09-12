@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import re
 import json
@@ -1002,7 +1002,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
 
     st.subheader("Data organization")
     st.caption(
-        "Define your folder structure and naming conventions. Use <...> for placeholders, e.g. <SUBJECT_ID>, <SESSION_ID>, <YYYYMMDD> or <YYYY_MM_DD>."
+        "Define your folder structure and naming conventions. Use <...> for placeholders, e.g. <SUBJECT_ID> or Mouse_<ID>, <SESSION_ID>, <YYYYMMDD> or <YYYY_MM_DD>."
     )
     current_tree = initial.get("data_organization") or _build_tree_text_v2(exp_types, data_formats)
     tree_text = st.text_area(
@@ -1031,6 +1031,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         has_subject = any("<SUBJECT_ID>" in c for c in contents)
         has_session = any("<SESSION_ID>" in c for c in contents)
         used_dates = [k for k in date_patterns if any(k in c for c in contents)]
+        expected_fmt = " or ".join(tok.strip("<>") for tok in used_dates) if used_dates else ""
         session_line = next((c for c in contents if "<SESSION_ID>" in c), "")
         date_embedded_in_session = session_line and any(tok in session_line for tok in used_dates)
 
@@ -1051,17 +1052,23 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
                     return True
             return False
 
+        node_types = {
+            "subject": "subject",
+            "session_day": "session day",
+            "recording_session": "recording session",
+        }
         for subj in subjects:
             if used_dates and not date_embedded_in_session:
                 date_dirs = [d for d in os.scandir(subj.path) if d.is_dir()]
                 if not date_dirs:
                     ok = False
-                    msgs.append(f"{subj.name}: no date folders found (expected {', '.join(used_dates)}).")
+                    msgs.append(f"{subj.name}: no {node_types['session_day']} folders found (expected {', '.join(used_dates)}).")
                     continue
                 bad = [d.name for d in date_dirs if not _has_date(d.name) or '-' in d.name]
                 if bad:
                     ok = False
-                    msgs.append(f"{subj.name}: invalid date folder(s): " + ", ".join(bad))
+                    hint = f". Naming convention for {node_types['session_day']} directories is {expected_fmt}" if expected_fmt else ""
+                    msgs.append(f"{subj.name}: these folder(s) will be ignored: " + ", ".join(bad) + hint)
                 if has_session:
                     for d in date_dirs:
                         if not _has_date(d.name):
@@ -1069,19 +1076,20 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
                         sess_dirs = [s for s in os.scandir(d.path) if s.is_dir()]
                         if not sess_dirs:
                             ok = False
-                            msgs.append(f"{subj.name}/{d.name}: no session folders found (<SESSION_ID> expected).")
+                            msgs.append(f"{subj.name}/{d.name}: no {node_types['recording_session']} folders found (<SESSION_ID> expected).")
             else:
                 if has_session:
                     sess_dirs = [s for s in os.scandir(subj.path) if s.is_dir()]
                     if not sess_dirs:
                         ok = False
-                        msgs.append(f"{subj.name}: no session folders found (<SESSION_ID> expected).")
+                        msgs.append(f"{subj.name}: no {node_types['recording_session']} folders found (<SESSION_ID> expected).")
                     elif used_dates:
                         bad = [s.name for s in sess_dirs if not _has_date(s.name) or '-' in s.name]
                         if bad:
                             ok = False
+                            hint = f". Naming convention for {node_types['recording_session']} directories is {expected_fmt}" if expected_fmt else ""
                             msgs.append(
-                                f"{subj.name}: session folders missing date token {', '.join(used_dates)}: " + ", ".join(bad)
+                                f"{subj.name}: invalid {node_types['recording_session']} folder(s): " + ", ".join(bad) + hint
                             )
 
         if ok:
