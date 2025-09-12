@@ -3,6 +3,7 @@ import os
 import re
 import json
 import subprocess
+import sys
 from datetime import datetime
 from typing import List, Dict, Tuple, Set, Any
 from textwrap import dedent
@@ -272,6 +273,29 @@ def _compose_script_name(project_name: str, experimenter: str, modalities: List[
     stamp = datetime.now().strftime("%Y%m%d")
     base = f"{_sanitize_name(project_name)}__{_sanitize_name(experimenter)}__ingest_{stamp}.py"
     return base
+
+
+def _open_in_file_manager(path: str, *, select: bool = False) -> None:
+    """Open a folder (or reveal a file) in the system file manager.
+
+    select=True attempts to highlight the file when supported by the OS.
+    """
+    try:
+        if os.name == "nt":
+            if select and os.path.exists(path):
+                subprocess.Popen(["explorer", "/select,", path])
+            else:
+                os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            if select and os.path.exists(path):
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["open", path])
+        else:
+            target = path if os.path.isdir(path) else os.path.dirname(path)
+            subprocess.Popen(["xdg-open", target])
+    except Exception as e:
+        st.error(f"Failed to open file manager: {e}")
 
 
 def _load_dataset_yaml(root: str) -> Dict[str, Any]:
@@ -1732,10 +1756,11 @@ def main() -> None:
                     style_df(uf_df),
                     hide_index=True,
                     column_config={
-                        "Field": st.column_config.TextColumn("Field"),
-                        "Category": st.column_config.TextColumn("Category", disabled=True),
-                        "Description": st.column_config.TextColumn("Description", disabled=True),
+                        "Field": st.column_config.TextColumn("Field", width="large"),
+                        "Category": st.column_config.TextColumn("Category", disabled=True, width="small"),
+                        "Description": st.column_config.TextColumn("Description", disabled=True, width="large"),
                     },
+                    use_container_width=True,
                 )
                 try:
                     user_fields = uf_edit["Field"].tolist()
@@ -1753,16 +1778,17 @@ def main() -> None:
                     )
                 af_df = build_field_df(auto_fields, show_values=bool(brainstem_vals))
                 af_col_cfg = {
-                    "Field": st.column_config.TextColumn("Field"),
-                    "Category": st.column_config.TextColumn("Category", disabled=True),
-                    "Description": st.column_config.TextColumn("Description", disabled=True),
+                    "Field": st.column_config.TextColumn("Field", width="large"),
+                    "Category": st.column_config.TextColumn("Category", disabled=True, width="small"),
+                    "Description": st.column_config.TextColumn("Description", disabled=True, width="large"),
                 }
                 if "Value" in af_df.columns:
-                    af_col_cfg["Value"] = st.column_config.TextColumn("Value", disabled=True)
+                    af_col_cfg["Value"] = st.column_config.TextColumn("Value", disabled=True, width="large")
                 af_edit = st.data_editor(
                     style_df(af_df),
                     hide_index=True,
                     column_config=af_col_cfg,
+                    use_container_width=True,
                 )
                 try:
                     auto_fields = af_edit["Field"].tolist()
@@ -1857,39 +1883,36 @@ def main() -> None:
 
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             base_name = "u19_spreadsheet_template"
-            if bytes_xlsx is not None:
-                st.download_button(
-                    label="Download template (.xlsx)",
-                    data=bytes_xlsx,
-                    file_name=f"{base_name}_{timestamp}.xlsx",
-                    mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-                )
-                # Save to project root convenience
-                if st.button("Save .xlsx to project root", key="save_xlsx_to_root"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("Save .xlsx to project root", key="save_xlsx_to_root", disabled=(bytes_xlsx is None)):
                     try:
                         root = _project_root()
                         out_path = os.path.join(root, f"{base_name}_{timestamp}.xlsx")
                         with open(out_path, "wb") as f:
-                            f.write(bytes_xlsx.getvalue())
+                            f.write(bytes_xlsx.getvalue())  # type: ignore[arg-type]
                         st.success(f"Saved to {out_path}")
+                        st.session_state["last_saved_template_path"] = out_path
                     except Exception as e:
                         st.error(f"Failed to save .xlsx: {e}")
-            if bytes_csv is not None:
-                st.download_button(
-                    label="Download template (.csv)",
-                    data=bytes_csv,
-                    file_name=f"{base_name}_{timestamp}.csv",
-                    mime="text/csv",
-                )
-                if st.button("Save .csv to project root", key="save_csv_to_root"):
+            with c2:
+                if st.button("Save .csv to project root", key="save_csv_to_root", disabled=(bytes_csv is None)):
                     try:
                         root = _project_root()
                         out_path = os.path.join(root, f"{base_name}_{timestamp}.csv")
                         with open(out_path, "wb") as f:
-                            f.write(bytes_csv.getvalue())
+                            f.write(bytes_csv.getvalue())  # type: ignore[arg-type]
                         st.success(f"Saved to {out_path}")
+                        st.session_state["last_saved_template_path"] = out_path
                     except Exception as e:
                         st.error(f"Failed to save .csv: {e}")
+            with c3:
+                if st.button("Open project folder", key="open_folder_new_any"):
+                    target = st.session_state.get("last_saved_template_path")
+                    if isinstance(target, str) and os.path.isfile(target):
+                        _open_in_file_manager(target, select=True)
+                    else:
+                        _open_in_file_manager(_project_root())
 
         with tab_load:
             tmpl_paths = sorted(glob.glob("templates/*.xlsx"))
@@ -1967,20 +1990,36 @@ def main() -> None:
 
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             base_name = os.path.splitext(choice)[0]
-            if bytes_xlsx is not None:
-                st.download_button(
-                    label="Download modified template (.xlsx)",
-                    data=bytes_xlsx,
-                    file_name=f"{base_name}_modified_{timestamp}.xlsx",
-                    mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-                )
-            if bytes_csv is not None:
-                st.download_button(
-                    label="Download modified template (.csv)",
-                    data=bytes_csv,
-                    file_name=f"{base_name}_modified_{timestamp}.csv",
-                    mime="text/csv",
-                )
+            c1m, c2m, c3m = st.columns(3)
+            with c1m:
+                if st.button("Save modified .xlsx to project root", key="save_modified_xlsx_to_root", disabled=(bytes_xlsx is None)):
+                    try:
+                        root = _project_root()
+                        out_path = os.path.join(root, f"{base_name}_modified_{timestamp}.xlsx")
+                        with open(out_path, "wb") as f:
+                            f.write(bytes_xlsx.getvalue())  # type: ignore[arg-type]
+                        st.success(f"Saved to {out_path}")
+                        st.session_state["last_saved_template_path"] = out_path
+                    except Exception as e:
+                        st.error(f"Failed to save .xlsx: {e}")
+            with c2m:
+                if st.button("Save modified .csv to project root", key="save_modified_csv_to_root", disabled=(bytes_csv is None)):
+                    try:
+                        root = _project_root()
+                        out_path = os.path.join(root, f"{base_name}_modified_{timestamp}.csv")
+                        with open(out_path, "wb") as f:
+                            f.write(bytes_csv.getvalue())  # type: ignore[arg-type]
+                        st.success(f"Saved to {out_path}")
+                        st.session_state["last_saved_template_path"] = out_path
+                    except Exception as e:
+                        st.error(f"Failed to save .csv: {e}")
+            with c3m:
+                if st.button("Open project folder", key="open_folder_mod_any"):
+                    target = st.session_state.get("last_saved_template_path")
+                    if isinstance(target, str) and os.path.isfile(target):
+                        _open_in_file_manager(target, select=True)
+                    else:
+                        _open_in_file_manager(_project_root())
         return
 
     if mode == "validate":
