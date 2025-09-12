@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 
 # Curated defaults used if external libs are unavailable
@@ -162,6 +162,46 @@ BRAINSTEM_AUTO_FIELDS: List[str] = [
     "session_start_time",
     "institution",
 ]
+
+# Mapping from brainSTEM API responses to our template fields.
+# Each tuple represents the nested key path in the response JSON. These
+# paths are heuristics and may need adjustment for a given deployment.
+BRAINSTEM_FIELD_MAP: Dict[str, Tuple[str, ...]] = {
+    "subject_id": ("subject", "id"),
+    "age": ("subject", "age"),
+    "subject_description": ("subject", "description"),
+    "genotype": ("subject", "genotype"),
+    "sex": ("subject", "sex"),
+    "species": ("subject", "species"),
+    "subject_weight": ("subject", "weight"),
+    "subject_strain": ("subject", "strain"),
+    "session_description": ("session", "description"),
+    "experimenters": ("session", "experimenters"),
+    "session_start_time": ("session", "start_time"),
+    "institution": ("session", "institution"),
+}
+
+# Scaffold for extracting brainSTEM-derived values for auto-filled fields.
+def extract_brainstem_values(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Return mapping of template field names to values extracted from brainSTEM.
+
+    Missing paths are ignored. This helper is intentionally permissive and is
+    expected to be adapted once the exact brainSTEM response schema is known.
+    """
+
+    out: Dict[str, Any] = {}
+    for field, path in BRAINSTEM_FIELD_MAP.items():
+        value: Any = meta
+        for key in path:
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(key)
+            if value is None:
+                break
+        if value not in (None, ""):
+            out[field] = value
+    return out
 
 # Mapping of template fields to semantic categories for UI grouping
 FIELD_CATEGORIES: Dict[str, str] = {

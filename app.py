@@ -18,6 +18,7 @@ from dataset_manager.schema import (
     get_dandi_required_fields,
     get_field_descriptions,
     get_field_category,
+    extract_brainstem_values,
 )
 from dataset_manager.export import build_workbook_bytes, build_csv_bytes
 from dataset_manager.validation import (
@@ -1135,12 +1136,17 @@ def main() -> None:
                             r.raise_for_status()
                             meta = r.json()
                         st.session_state["brainstem_metadata"] = meta
+                        st.session_state["brainstem_fields"] = extract_brainstem_values(meta)
                         st.success("Fetched metadata from brainSTEM.")
                         st.caption("Preview of fetched fields (truncated):")
                         try:
                             st.code(json.dumps(meta, indent=2)[:2000])
                         except Exception:
                             st.write(meta)
+                        mapped = st.session_state.get("brainstem_fields", {})
+                        if mapped:
+                            st.caption("Mapped field values:")
+                            st.json(mapped)
                     except Exception as e:
                         st.error(f"Failed to fetch brainSTEM metadata: {e}")
 
@@ -1188,18 +1194,22 @@ def main() -> None:
 
             st.subheader("Columns Preview")
             desc_map = get_field_descriptions()
+            brainstem_vals = st.session_state.get("brainstem_fields", {})
 
-            def build_field_df(fields: List[str]) -> pd.DataFrame:
-                rows = [
-                    {
+            def build_field_df(fields: List[str], show_values: bool = False) -> pd.DataFrame:
+                rows = []
+                for f in fields:
+                    row = {
                         "Field": f,
                         "Category": get_field_category(f),
                         "Description": desc_map.get(f, ""),
                     }
-                    for f in fields
-                ]
+                    if show_values:
+                        row["Value"] = brainstem_vals.get(f, "")
+                    rows.append(row)
                 df = pd.DataFrame(rows)
-                return df.sort_values(["Category", "Field"]).reset_index(drop=True)
+                sort_cols = ["Category", "Field"]
+                return df.sort_values(sort_cols).reset_index(drop=True)
 
             color_map = {
                 "Subject": "#e6f7ff",
@@ -1244,15 +1254,18 @@ def main() -> None:
                     st.caption(
                         "ℹ️ These fields can be auto-filled from file names, project configuration, or timestamps."
                     )
-                af_df = build_field_df(auto_fields)
+                af_df = build_field_df(auto_fields, show_values=bool(brainstem_vals))
+                af_col_cfg = {
+                    "Field": st.column_config.TextColumn("Field"),
+                    "Category": st.column_config.TextColumn("Category", disabled=True),
+                    "Description": st.column_config.TextColumn("Description", disabled=True),
+                }
+                if "Value" in af_df.columns:
+                    af_col_cfg["Value"] = st.column_config.TextColumn("Value", disabled=True)
                 af_edit = st.data_editor(
                     style_df(af_df),
                     hide_index=True,
-                    column_config={
-                        "Field": st.column_config.TextColumn("Field"),
-                        "Category": st.column_config.TextColumn("Category", disabled=True),
-                        "Description": st.column_config.TextColumn("Description", disabled=True),
-                    },
+                    column_config=af_col_cfg,
                 )
                 try:
                     auto_fields = af_edit["Field"].tolist()
