@@ -27,14 +27,11 @@ A Streamlit interface that helps bundle data and metadata based on experimental 
 This application generates data collection templates tailored to specific experimental types. Users select their experimental modalities, and the tool automatically creates spreadsheets with the appropriate metadata fields required for NWB file creation and DANDI archive submission.
 
 ### Supported Experimental Types
-- **Electrophysiology** - Neural recordings
-- **Behavior and physiological measurements** - Movement and behavioral data
-- **Optogenetics** - Light-stimulation experiments
-- **Miniscope imaging** - Miniaturized microscopy
-- **Fiber photometry** - Fluorescence recordings
-- **2-photon imaging** - High-resolution neural imaging
-- **Widefield imaging** - Large-scale brain activity
-- **EEG recordings** - Electroencephalography
+- Electrophysiology – Extracellular / Intracellular
+- Behavior and physiological measurements
+- Optical Physiology
+- Stimulations
+- Experimental metadata and notes (implicit)
 
 ### Schema Validation
 
@@ -61,6 +58,57 @@ or, if not using uv:
 - In the sidebar, select experimental types and whether to include DANDI/NWB fields.
 - Set the number of rows (sessions) you want in the template.
 - Download as `.xlsx` (if pandas/openpyxl present) or `.csv`.
+
+### Folder spec with <placeholders>
+
+In Project → Data organization, define your structure using angle‑bracket placeholders inside names:
+
+- `<SUBJECT_ID>`: subject folder name
+- `<YYYYMMDD>` or `<YYYY_MM_DD>`: date in folder name
+- `<SESSION_ID>`: session folder name
+
+Examples:
+
+1) Simple, date as its own folder
+
+```
+<SUBJECT_ID>
+├── <YYYY_MM_DD>
+│   ├── <SESSION_ID>
+│   │   ├── raw_ephys_data
+│   │   └── processed_data
+```
+
+2) Date embedded into session name
+
+```
+<SUBJECT_ID>
+├── <SESSION_ID>_<YYYYMMDD>
+```
+
+Use the “Check folder structure against spec” button to validate your actual project folders against this spec. The app warns when:
+- subject folders are missing,
+- date folders don’t match `<YYYYMMDD>` or `<YYYY_MM_DD>`,
+- session folders are missing or don’t include the date token when required.
+
+Note: dates like `2025-04-01` (with hyphens) do not match `<YYYY_MM_DD>`.
+
+### Defining subjects and sessions
+
+There are three ways to define `subject_id` and subject metadata. These are used to auto-populate the template on the Descriptors page and later during conversions:
+
+1) Folder name (Project page → Data organization)
+- If your dataset directory contains top-level subject folders, each subject folder name becomes the default `subject_id` for all sessions inside it (e.g., `Mouse123`).
+
+2) `subject.json` inside each subject folder
+- Place a `subject.json` file next to session folders. Any fields here override the folder name. Suggested keys align with NWB `Subject` fields: `subject_id`, `age`, `sex`, `species`, `subject_description`, `genotype`, `subject_weight`, `subject_strain`, `date_of_birth(YYYY-MM-DD)`.
+
+3) Manually in the template
+- You can edit `subject_id` and other fields in the generated spreadsheet.
+
+Notes:
+- If “Fetch notes/metadata from brainSTEM.org” is enabled on the Descriptors page, subject and session-related fields are treated as auto-populated. The app fetches notes (not a single subject at a time) so you can reconcile them per subject later in your workflow.
+- The Experimenter field is auto-populated from your Project page configuration.
 
 ## Notes
 

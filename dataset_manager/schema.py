@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 
 # Curated defaults used if external libs are unavailable
@@ -162,6 +162,104 @@ BRAINSTEM_AUTO_FIELDS: List[str] = [
     "session_start_time",
     "institution",
 ]
+
+# Mapping from brainSTEM API responses to our template fields.
+# Each tuple represents the nested key path in the response JSON. These
+# paths are heuristics and may need adjustment for a given deployment.
+BRAINSTEM_FIELD_MAP: Dict[str, Tuple[str, ...]] = {
+    "subject_id": ("subject", "id"),
+    "age": ("subject", "age"),
+    "subject_description": ("subject", "description"),
+    "genotype": ("subject", "genotype"),
+    "sex": ("subject", "sex"),
+    "species": ("subject", "species"),
+    "subject_weight": ("subject", "weight"),
+    "subject_strain": ("subject", "strain"),
+    "session_description": ("session", "description"),
+    "experimenters": ("session", "experimenters"),
+    "session_start_time": ("session", "start_time"),
+    "institution": ("session", "institution"),
+}
+
+# Scaffold for extracting brainSTEM-derived values for auto-filled fields.
+def extract_brainstem_values(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Return mapping of template field names to values extracted from brainSTEM.
+
+    Missing paths are ignored. This helper is intentionally permissive and is
+    expected to be adapted once the exact brainSTEM response schema is known.
+    """
+
+    out: Dict[str, Any] = {}
+    for field, path in BRAINSTEM_FIELD_MAP.items():
+        value: Any = meta
+        for key in path:
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(key)
+            if value is None:
+                break
+        if value not in (None, ""):
+            out[field] = value
+    return out
+
+# Mapping of template fields to semantic categories for UI grouping
+FIELD_CATEGORIES: Dict[str, str] = {
+    # Subject-related fields
+    "subject_id": "Subject",
+    "age": "Subject",
+    "subject_description": "Subject",
+    "genotype": "Subject",
+    "sex": "Subject",
+    "species": "Subject",
+    "subject_weight": "Subject",
+    "subject_strain": "Subject",
+    "date_of_birth(YYYY-MM-DD)": "Subject",
+    # Session-related fields
+    "session_start_time(YYYY-MM-DD HH:MM)": "Session",
+    "session_start_time": "Session",
+    "session_id": "Session",
+    "session_description": "Session",
+    "src_folder_directory": "Session",
+    # Experiment details
+    "experiment_description": "Experiment",
+    "experimenters": "Experiment",
+    "experimenter": "Experiment",
+    # Institutional metadata
+    "institution": "Institution",
+    "lab": "Institution",
+    # Dataset-level metadata
+    "dataset_name": "Dataset",
+    "dataset_description": "Dataset",
+    "contributor_name": "Dataset",
+    "contributor_role": "Dataset",
+    "keywords": "Dataset",
+    "protocol": "Dataset",
+    # General identifier/other
+    "identifier": "Other",
+}
+
+
+def get_field_category(field: str) -> str:
+    """Return the semantic category for a template field.
+
+    Falls back to heuristics based on common prefixes if the field is not in
+    :data:`FIELD_CATEGORIES`.
+    """
+
+    if field in FIELD_CATEGORIES:
+        return FIELD_CATEGORIES[field]
+    if field.startswith("subject_") or field in {"age", "sex", "species"}:
+        return "Subject"
+    if field.startswith("session_"):
+        return "Session"
+    if field in {"experiment_description", "experimenter", "experimenters", "protocol"}:
+        return "Experiment"
+    if field in {"institution", "lab"}:
+        return "Institution"
+    if field.startswith("dataset_") or field in {"contributor_name", "contributor_role", "keywords"}:
+        return "Dataset"
+    return "Other"
 
 
 def _try_import_dandi_fields() -> List[str] | None:
@@ -356,6 +454,50 @@ def get_field_descriptions() -> Dict[str, str]:
         Dictionary mapping field names to their descriptions
     """
     return {
+        # Subject fields
+        "subject_id": "Subject identifier unique within the project.",
+        "age": "Age of the subject at time of experiment (e.g., 'P60').",
+        "subject_description": "Free-text description of the subject.",
+        "genotype": "Genetic line or modifications.",
+        "sex": "Biological sex of the subject.",
+        "species": "Species of the subject (e.g., 'Mus musculus').",
+        "subject_weight": "Weight of the subject with units (e.g., '25 g').",
+        "subject_strain": "Strain of the subject.",
+        "date_of_birth(YYYY-MM-DD)": "Subject's date of birth (YYYY-MM-DD).",
+
+        # Session fields
+        "session_start_time(YYYY-MM-DD HH:MM)": "Start time of the session in UTC (YYYY-MM-DD HH:MM).",
+        "session_start_time": "Start time of the session.",
+        "session_id": "Unique identifier for this session (e.g., folder name).",
+        "session_description": "Summary or purpose of the session.",
+        "src_folder_directory": "Path to source data folder for this session.",
+
+        # Experiment fields
+        "experiment_description": "Description of the experiment or protocol.",
+        "experimenters": "Names of experimenters for this session.",
+        "experimenter": "Name of the experimenter.",
+
+        # Institution fields
+        "institution": "Institution where the experiment was performed.",
+        "lab": "Laboratory or department name.",
+
+        # Administrative/other fields
+        "identifier": "Unique dataset identifier (e.g., GUID).",
+
+        # Dataset fields
+        "dataset_name": (
+            "Name/title of your dataset (auto-populated from project configuration). "
+            "This will be used as the dataset title when publishing to DANDI."
+        ),
+        "dataset_description": (
+            "Description of your dataset (auto-populated from project configuration). "
+            "Provides an overview of the research and experimental approach."
+        ),
+        "contributor_name": "Name of the principal investigator or main contributor.",
+        "contributor_role": "Role of the contributor (e.g., 'ContactPerson', 'Creator').",
+        "keywords": "Research keywords describing your study.",
+        "protocol": "Description of experimental protocols used.",
+
         # Electrophysiology fields
         "electrode_configuration": (
             "Electrode configuration/arrangement for EEG/EMG recordings. "
@@ -374,15 +516,5 @@ def get_field_descriptions() -> Dict[str, str]:
         "ephys_acq_system": (
             "Electrophysiology data acquisition system used. "
             "Examples: 'Intan RHD2000', 'Blackrock Cerebus', 'SpikeGLX', 'OpenEphys'."
-        ),
-        
-        # Dataset fields
-        "dataset_name": (
-            "Name/title of your dataset (auto-populated from project configuration). "
-            "This will be used as the dataset title when publishing to DANDI."
-        ),
-        "dataset_description": (
-            "Description of your dataset (auto-populated from project configuration). "
-            "Provides an overview of the research and experimental approach."
         ),
     }

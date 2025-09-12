@@ -2,20 +2,24 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import List
+from typing import List, Any, Dict, Optional
 
 
-def build_csv_bytes(columns: List[str], n_rows: int) -> io.BytesIO:
+def build_csv_bytes(columns: List[str], n_rows: int, rows: Optional[List[Dict[str, Any]]] = None) -> io.BytesIO:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(columns)
-    for _ in range(n_rows):
-        writer.writerow([""] * len(columns))
+    if rows:
+        for r in rows:
+            writer.writerow([r.get(c, "") for c in columns])
+    else:
+        for _ in range(n_rows):
+            writer.writerow([""] * len(columns))
     raw = buf.getvalue().encode("utf-8")
     return io.BytesIO(raw)
 
 
-def build_workbook_bytes(columns: List[str], n_rows: int) -> io.BytesIO:
+def build_workbook_bytes(columns: List[str], n_rows: int, rows: Optional[List[Dict[str, Any]]] = None) -> io.BytesIO:
     """Build XLSX workbook in-memory using pandas/openpyxl/xlsxwriter if available.
 
     Raises if no supported writer is available so caller can fall back to CSV.
@@ -24,7 +28,15 @@ def build_workbook_bytes(columns: List[str], n_rows: int) -> io.BytesIO:
     try:
         import pandas as pd  # type: ignore
 
-        df = pd.DataFrame(columns=columns, data=[[None] * len(columns) for _ in range(n_rows)])
+        if rows:
+            # Build DataFrame from rows and ensure column order
+            df = pd.DataFrame(rows)
+            for c in columns:
+                if c not in df.columns:
+                    df[c] = None
+            df = df[columns]
+        else:
+            df = pd.DataFrame(columns=columns, data=[[None] * len(columns) for _ in range(n_rows)])
         bio = io.BytesIO()
         # Prefer openpyxl; fall back to xlsxwriter
         try:
@@ -42,8 +54,12 @@ def build_workbook_bytes(columns: List[str], n_rows: int) -> io.BytesIO:
             ws = wb.active
             ws.title = "Template"
             ws.append(columns)
-            for _ in range(n_rows):
-                ws.append([None] * len(columns))
+            if rows:
+                for r in rows:
+                    ws.append([r.get(c, None) for c in columns])
+            else:
+                for _ in range(n_rows):
+                    ws.append([None] * len(columns))
             bio = io.BytesIO()
             wb.save(bio)
             bio.seek(0)
