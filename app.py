@@ -939,9 +939,80 @@ def _build_tree_text_v2(exp_types: List[str], data_formats: List[Dict[str, str]]
     lines.append("│   ├── <SESSION_ID>")
     for i, c in enumerate(ordered):
         is_last = i == len(ordered) - 1
-        prefix = "│   └── " if is_last else "│   ├── "
+        prefix = "│   │   └── " if is_last else "│   │   ├── "
         lines.append(prefix + c)
     return "\n".join(lines)
+
+
+def _build_tree_from_levels(level_configs: List[Dict[str, str]], data_folders: List[str]) -> str:
+    """Build a tree structure from user-configured directory levels."""
+    if not level_configs:
+        return "<PROJECT_ROOT>"
+    
+    lines: List[str] = []
+    
+    # Build the hierarchy
+    for i, config in enumerate(level_configs):
+        level_type = config["type"]
+        placeholder = config["placeholder"]
+        
+        if i == 0:
+            # First level (root)
+            lines.append(placeholder)
+        else:
+            # Calculate indentation based on level
+            indent = "│   " * (i - 1)
+            if i == len(level_configs) - 1:
+                # Last directory level
+                connector = "└── "
+            else:
+                connector = "├── "
+            lines.append(indent + connector + placeholder)
+    
+    # Add data folders under the last directory level
+    if data_folders and level_configs:
+        last_level_indent = "│   " * (len(level_configs) - 1)
+        for j, folder in enumerate(data_folders):
+            is_last_folder = j == len(data_folders) - 1
+            folder_connector = "└── " if is_last_folder else "├── "
+            lines.append(last_level_indent + "│   " + folder_connector + folder)
+    
+    return "\n".join(lines)
+
+
+def _get_data_folders(exp_types: List[str], data_formats: List[Dict[str, str]]) -> List[str]:
+    """Get data folders based on experimental modalities."""
+    children: List[str] = []
+
+    has_video = any(
+        (row.get("Data type", "") + " " + row.get("Format", "")).lower().find("video") >= 0
+        for row in data_formats
+    )
+    if any(et.startswith("Electrophysiology") for et in exp_types):
+        children.append("raw_ephys_data")
+    if "Behavior and physiological measurements" in exp_types and has_video:
+        children.append("raw_behavior_video")
+    if "Optical Physiology" in exp_types:
+        children.append("raw_imaging_ophys")
+
+    # Always include processed data placeholder
+    children.extend(["processed_data"])
+
+    ordered: List[str] = []
+    for name in [
+        "raw_ephys_data",
+        "raw_behavior_video", 
+        "raw_imaging_ophys",
+        "opto_stim_settings",
+        "metadata",
+        "notes",
+        "task_data",
+        "processed_data",
+    ]:
+        if name in children and name not in ordered:
+            ordered.append(name)
+    
+    return ordered
 def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     """Render the project definition form and return values."""
 
@@ -1002,38 +1073,286 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
 
     st.subheader("Data organization")
     st.caption(
-        "Define your folder structure and naming conventions. Use <...> for placeholders, e.g. <SUBJECT_ID> or Mouse_<ID>, <SESSION_ID>, <YYYYMMDD> or <YYYY_MM_DD>."
+        "Configure your directory structure. The recording session level defines how deep your session folders are nested."
     )
-    current_tree = initial.get("data_organization") or _build_tree_text_v2(exp_types, data_formats)
-    tree_text = st.text_area(
-        "Tree editor",
-        value=current_tree,
-        height=240,
-        key=f"tree_editor_{initial.get('_mode', '')}",
-    )
+    
+    # Two-column layout
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Directory structure**")
+        
+        # Level depth selector
+        depth = st.number_input(
+            "Level depth for Recording session, with respect to Project root",
+            min_value=1,
+            max_value=5,
+            value=3,
+            key=f"depth_{initial.get('_mode', '')}"
+        )
+        
+        # Initialize level configurations if not exist
+        level_key = f"level_configs_{initial.get('_mode', '')}"
+        if level_key not in st.session_state or len(st.session_state[level_key]) != depth:
+            # Default configuration
+            default_configs = [
+                {"type": "Subject ID", "placeholder": "<SUBJECT_ID>"},
+                {"type": "Session day", "placeholder": "<YYYY_MM_DD>"},
+                {"type": "Recording session", "placeholder": "<SESSION_ID>"}
+            ]
+            # Extend or trim to match depth
+            while len(default_configs) < depth:
+                default_configs.append({"type": "Other", "placeholder": f"<LEVEL_{len(default_configs) + 1}>"})
+            st.session_state[level_key] = default_configs[:depth]
+        
+        level_configs = st.session_state[level_key]
+        
+        # All available level options
+        all_level_options = [
+            "Subject ID", 
+            "Session day", 
+            "Recording session",
+            "Other"
+        ]
+        
+        # Default placeholders based on type
+        default_placeholders = {
+            "Subject ID": "<SUBJECT_ID>",
+            "Session day": "<YYYY_MM_DD>", 
+            "Recording session": "<SESSION_ID>",
+            "Other": "<CUSTOM>"
+        }
+        
+        # Track selected types to filter options for lower levels
+        selected_types = []
+        
+        for i in range(depth):
+            current_config = level_configs[i]
+            
+            # Filter available options - remove already selected types from higher levels
+            # but allow "Other" to be selected multiple times
+            available_options = []
+            for opt in all_level_options:
+                if opt == "Other":
+                    available_options.append(opt)
+                elif opt not in selected_types:
+                    available_options.append(opt)
+                else:
+                    # Add as disabled option to show it's been used
+                    available_options.append(f"{opt} (used above)")
+            
+            # Level type selector
+            current_type = current_config["type"]
+            # Handle case where current type might be disabled
+            if current_type not in available_options:
+                if f"{current_type} (used above)" in available_options:
+                    display_index = available_options.index(f"{current_type} (used above)")
+                elif current_type in all_level_options:
+                    # Reset to first available option
+                    current_type = available_options[0] if available_options else "Other"
+                    display_index = 0
+                else:
+                    display_index = 0
+            else:
+                display_index = available_options.index(current_type)
+            
+            # Create side-by-side layout for each level
+            level_col1, level_col2 = st.columns([1, 1])
+            
+            with level_col1:
+                selected_type = st.selectbox(
+                    f"Level {i + 1}",
+                    options=available_options,
+                    index=display_index,
+                    key=f"level_type_{i}_{initial.get('_mode', '')}"
+                )
+            
+            # Clean the selected type (remove " (used above)" suffix)
+            clean_selected_type = selected_type.replace(" (used above)", "")
+            
+            # Update placeholder when type changes
+            current_placeholder = current_config.get("placeholder", "")
+            expected_placeholder = default_placeholders.get(clean_selected_type, f"<LEVEL_{i + 1}>")
+            
+            # If the placeholder matches the default for the old type, update to new default
+            old_type = current_config.get("type", "")
+            if current_placeholder == default_placeholders.get(old_type, "") or not current_placeholder:
+                new_placeholder = expected_placeholder
+            else:
+                new_placeholder = current_placeholder
+            
+            with level_col2:
+                placeholder = st.text_input(
+                    f"Edit placeholder for Level {i + 1}",
+                    value=new_placeholder,
+                    key=f"placeholder_{i}_{initial.get('_mode', '')}",
+                    help=f"Default for {clean_selected_type}: {expected_placeholder}"
+                )
+            
+            # Update the config
+            level_configs[i] = {"type": clean_selected_type, "placeholder": placeholder}
+            
+            # Add to selected types (but not "Other" since it can be reused)
+            if clean_selected_type != "Other" and selected_type not in [opt for opt in available_options if "(used above)" in opt]:
+                selected_types.append(clean_selected_type)
+        
+        st.session_state[level_key] = level_configs
+    
+    with col2:
+        st.markdown("**Tree editor**")
+        
+        # Get data folders based on experimental modalities
+        data_folders = _get_data_folders(exp_types, data_formats)
+        
+        # Build tree from level configurations
+        generated_tree = _build_tree_from_levels(level_configs, data_folders)
+        
+        # Allow user to edit the generated tree
+        tree_text = st.text_area(
+            "Generated structure (editable)",
+            value=generated_tree,
+            height=300,
+            key=f"tree_editor_{initial.get('_mode', '')}",
+            help="This tree is generated from your level selections. You can edit it directly if needed."
+        )
+    
+    # Full-width preview section
     st.caption("Preview (spec with <placeholders>)")
     st.code(tree_text)
 
     # Validate actual folders against the spec
     def _validate_folder_structure(spec_text: str, base_dir: str) -> Tuple[bool, List[str]]:
         import re as _re
-        # Recognized date placeholder patterns
-        date_patterns = {
-            "<YYYYMMDD>": r"[0-9]{8}",
-            "<YYYY_MM_DD>": r"[0-9]{4}_[0-9]{2}_[0-9]{2}",
-        }
+        from datetime import datetime
+        
+        def _is_date_like(text: str) -> bool:
+            """Check if a string looks like a date using multiple strategies."""
+            # Strategy 1: Common date patterns (flexible regex)
+            common_patterns = [
+                r'^20\d{2}[_-]?\d{1,2}[_-]?\d{1,2}$',  # YYYY_MM_DD, YYYY-MM-DD, YYYYMMDD (2000-2099)
+                r'^\d{1,2}[_-]?\d{1,2}[_-]?20\d{2}$',  # MM_DD_YYYY, DD_MM_YYYY, MMDDYYYY
+                r'^\d{2}[_-]?\d{1,2}[_-]?\d{1,2}$',    # YY_MM_DD, YYMMDD
+                r'^\d{8}$',                              # Generic 8-digit dates
+                r'^\d{6}$',                              # Generic 6-digit dates (YYMMDD)
+            ]
+            
+            for pattern in common_patterns:
+                if _re.match(pattern, text):
+                    return True
+            
+            # Strategy 2: Try parsing as date (more permissive)
+            try:
+                # Remove common separators for parsing attempts
+                clean_text = text.replace('_', '').replace('-', '')
+                
+                # Try various date formats
+                formats_to_try = [
+                    '%Y%m%d',    # YYYYMMDD
+                    '%y%m%d',    # YYMMDD
+                    '%m%d%Y',    # MMDDYYYY
+                    '%d%m%Y',    # DDMMYYYY
+                ]
+                
+                for fmt in formats_to_try:
+                    try:
+                        datetime.strptime(clean_text, fmt)
+                        return True
+                    except ValueError:
+                        continue
+                        
+                # Try with separators
+                for sep in ['_', '-']:
+                    if sep in text:
+                        parts = text.split(sep)
+                        if len(parts) == 3:
+                            # Try to parse as YYYY-MM-DD or MM-DD-YYYY or DD-MM-YYYY
+                            try:
+                                if len(parts[0]) == 4:  # YYYY-MM-DD
+                                    datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+                                    return True
+                                elif len(parts[2]) == 4:  # MM-DD-YYYY or DD-MM-YYYY
+                                    datetime(int(parts[2]), int(parts[0]), int(parts[1]))
+                                    return True
+                                    # Note: Ambiguity between MM-DD and DD-MM, but both are valid dates
+                            except (ValueError, TypeError):
+                                continue
+            except Exception:
+                pass
+            
+            return False
+        
+        def _extract_date_placeholders(spec_text: str) -> List[str]:
+            """Extract date-like placeholders from the spec."""
+            # Find all placeholders in angle brackets
+            placeholders = _re.findall(r'<([^>]+)>', spec_text)
+            date_placeholders = []
+            
+            for placeholder in placeholders:
+                # Check if placeholder looks like a date format
+                if any(date_part in placeholder.upper() for date_part in ['YYYY', 'YY', 'MM', 'DD', 'DATE']):
+                    date_placeholders.append(f"<{placeholder}>")
+            
+            return date_placeholders
+        
+        def _matches_placeholder_pattern(folder_name: str, placeholder: str) -> bool:
+            """Check if a folder name matches a specific placeholder pattern exactly."""
+            if placeholder == "<SUBJECT_ID>":
+                return True  # Any non-empty name is valid for subject
+            elif placeholder == "<SESSION_ID>":
+                return True  # Any non-empty name is valid for session
+            elif placeholder.startswith("<YYYY") and placeholder.endswith(">"):
+                # Extract the expected pattern from the placeholder
+                pattern = placeholder.strip("<>")
+                
+                # Convert placeholder pattern to regex
+                if pattern == "YYYY-MM-DD":
+                    return bool(_re.match(r'^20\d{2}-\d{2}-\d{2}$', folder_name))
+                elif pattern == "YYYY_MM_DD":
+                    return bool(_re.match(r'^20\d{2}_\d{2}_\d{2}$', folder_name))
+                elif pattern == "YYYYMMDD":
+                    return bool(_re.match(r'^20\d{6}$', folder_name))
+                elif pattern == "YYYY/MM/DD":
+                    return bool(_re.match(r'^20\d{2}/\d{2}/\d{2}$', folder_name))
+                # Add more specific patterns as needed
+                else:
+                    # Fall back to general date detection for unknown patterns
+                    return _is_date_like(folder_name)
+            else:
+                # For other custom placeholders, just check if non-empty
+                return len(folder_name.strip()) > 0
         raw_lines = [l.rstrip() for l in spec_text.splitlines() if l.strip()]
         def _content(line: str) -> str:
             return (
                 line.replace("├──", "").replace("└──", "").replace("│", "").replace("─", "").strip()
             )
         contents = [_content(l) for l in raw_lines]
-        has_subject = any("<SUBJECT_ID>" in c for c in contents)
-        has_session = any("<SESSION_ID>" in c for c in contents)
-        used_dates = [k for k in date_patterns if any(k in c for c in contents)]
-        expected_fmt = " or ".join(tok.strip("<>") for tok in used_dates) if used_dates else ""
-        session_line = next((c for c in contents if "<SESSION_ID>" in c), "")
-        date_embedded_in_session = session_line and any(tok in session_line for tok in used_dates)
+        
+        # Parse the tree structure to understand the hierarchy
+        tree_levels = []
+        for content in contents:
+            if content and content.startswith("<") and content.endswith(">"):
+                tree_levels.append(content)
+        
+        has_subject = any("<SUBJECT_ID>" in level for level in tree_levels)
+        has_session = any("<SESSION_ID>" in level for level in tree_levels)
+        
+        # Extract date placeholders and their expected positions
+        used_date_placeholders = _extract_date_placeholders(spec_text)
+        has_dates = len(used_date_placeholders) > 0
+        expected_fmt = " or ".join(tok.strip("<>") for tok in used_date_placeholders) if used_date_placeholders else ""
+        
+        # Determine the expected structure based on tree levels
+        if len(tree_levels) >= 2:
+            first_level = tree_levels[0]  # Should be subject
+            second_level = tree_levels[1] if len(tree_levels) > 1 else None
+            third_level = tree_levels[2] if len(tree_levels) > 2 else None
+            
+            # Check if dates are in second level (separate date folders) or embedded in session names
+            date_is_second_level = second_level and any(placeholder in second_level for placeholder in used_date_placeholders)
+            date_embedded_in_session = third_level and "<SESSION_ID>" in third_level and any(placeholder in third_level for placeholder in used_date_placeholders)
+        else:
+            date_is_second_level = False
+            date_embedded_in_session = False
 
         msgs: List[str] = []
         ok = True
@@ -1044,53 +1363,84 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
             ok = False
             msgs.append("No subject folders found in base directory.")
 
-        def _has_date(name: str) -> bool:
-            if not used_dates:
-                return True
-            for token in used_dates:
-                if _re.search(date_patterns[token], name):
-                    return True
-            return False
-
         node_types = {
             "subject": "subject",
             "session_day": "session day",
             "recording_session": "recording session",
         }
+        
         for subj in subjects:
-            if used_dates and not date_embedded_in_session:
-                date_dirs = [d for d in os.scandir(subj.path) if d.is_dir()]
-                if not date_dirs:
+            if has_dates and date_is_second_level:
+                # Expect separate date folders under subject (structure: SUBJECT/DATE/SESSION)
+                subfolders = [d for d in os.scandir(subj.path) if d.is_dir()]
+                if not subfolders:
                     ok = False
-                    msgs.append(f"{subj.name}: no {node_types['session_day']} folders found (expected {', '.join(used_dates)}).")
+                    msgs.append(f"{subj.name}: no date folders found (expected format: {expected_fmt}).")
                     continue
-                bad = [d.name for d in date_dirs if not _has_date(d.name) or '-' in d.name]
-                if bad:
+                    
+                # Check each subfolder against expected date pattern
+                invalid_dirs = []
+                valid_date_dirs = []
+                
+                for subfolder in subfolders:
+                    # Skip special files like subject.json, etc.
+                    if subfolder.name.endswith('.json') or subfolder.name in ['brainstem_config.yaml', 'dataset.yaml', 'project.json']:
+                        continue
+                        
+                    # Check if it matches any expected date placeholder
+                    is_valid = False
+                    for date_placeholder in used_date_placeholders:
+                        if _matches_placeholder_pattern(subfolder.name, date_placeholder):
+                            is_valid = True
+                            valid_date_dirs.append(subfolder)
+                            break
+                    
+                    if not is_valid:
+                        invalid_dirs.append(subfolder.name)
+                
+                if invalid_dirs:
                     ok = False
-                    hint = f". Naming convention for {node_types['session_day']} directories is {expected_fmt}" if expected_fmt else ""
-                    msgs.append(f"{subj.name}: these folder(s) will be ignored: " + ", ".join(bad) + hint)
+                    msgs.append(f"{subj.name}: these folders don't match expected date format '{expected_fmt}': {', '.join(invalid_dirs)}")
+                    
+                # Check for session folders under valid date folders
                 if has_session:
-                    for d in date_dirs:
-                        if not _has_date(d.name):
-                            continue
-                        sess_dirs = [s for s in os.scandir(d.path) if s.is_dir()]
+                    for date_dir in valid_date_dirs:
+                        sess_dirs = [s for s in os.scandir(date_dir.path) if s.is_dir()]
                         if not sess_dirs:
                             ok = False
-                            msgs.append(f"{subj.name}/{d.name}: no {node_types['recording_session']} folders found (<SESSION_ID> expected).")
-            else:
-                if has_session:
-                    sess_dirs = [s for s in os.scandir(subj.path) if s.is_dir()]
-                    if not sess_dirs:
-                        ok = False
-                        msgs.append(f"{subj.name}: no {node_types['recording_session']} folders found (<SESSION_ID> expected).")
-                    elif used_dates:
-                        bad = [s.name for s in sess_dirs if not _has_date(s.name) or '-' in s.name]
-                        if bad:
+                            msgs.append(f"{subj.name}/{date_dir.name}: no session folders found (expected <SESSION_ID>).")
+                            
+            elif has_session and not date_is_second_level:
+                # Sessions directly under subject (structure: SUBJECT/SESSION)
+                sess_dirs = [s for s in os.scandir(subj.path) if s.is_dir()]
+                if not sess_dirs:
+                    ok = False
+                    msgs.append(f"{subj.name}: no session folders found (expected <SESSION_ID>).")
+                else:
+                    # If dates are embedded in session names, validate that
+                    if date_embedded_in_session:
+                        invalid_sessions = []
+                        for sess_dir in sess_dirs:
+                            # Skip special files
+                            if sess_dir.name.endswith('.json') or sess_dir.name in ['brainstem_config.yaml', 'dataset.yaml', 'project.json']:
+                                continue
+                                
+                            # Check if session name contains expected date pattern
+                            contains_valid_date = False
+                            for date_placeholder in used_date_placeholders:
+                                if _matches_placeholder_pattern(sess_dir.name, date_placeholder):
+                                    contains_valid_date = True
+                                    break
+                            
+                            if not contains_valid_date:
+                                invalid_sessions.append(sess_dir.name)
+                        
+                        if invalid_sessions:
                             ok = False
-                            hint = f". Naming convention for {node_types['recording_session']} directories is {expected_fmt}" if expected_fmt else ""
-                            msgs.append(
-                                f"{subj.name}: invalid {node_types['recording_session']} folder(s): " + ", ".join(bad) + hint
-                            )
+                            msgs.append(f"{subj.name}: these session folders don't contain expected date format '{expected_fmt}': {', '.join(invalid_sessions)}")
+            else:
+                # No specific structure requirements
+                pass
 
         if ok:
             msgs.append("Folder structure looks consistent with the spec.")
