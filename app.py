@@ -1183,7 +1183,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
             
             with level_col2:
                 placeholder = st.text_input(
-                    f"Edit placeholder for Level {i + 1}",
+                    f"Edit placeholder",
                     value=new_placeholder,
                     key=f"placeholder_{i}_{initial.get('_mode', '')}",
                     help=f"Default for {clean_selected_type}: {expected_placeholder}"
@@ -1712,7 +1712,7 @@ def main() -> None:
                 "Other": "#f0f0f0",
             }
 
-            def style_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+            def style_df(df: pd.DataFrame) -> Any:
                 def _color_row(row):
                     color = color_map.get(row["Category"], "#ffffff")
                     return [f"background-color: {color}"] * len(row)
