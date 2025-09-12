@@ -841,7 +841,10 @@ def _suggest_processed_formats(exp_types: List[str], acq_map: Dict[str, List[str
 
 
 def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -> str:
-    """Construct a folder tree with nodes based on selected experiment types and data formats."""
+    """Construct a folder tree with nodes based on selected experiment types and data formats.
+
+    See also: _build_tree_text_v2 which uses <placeholders>.
+    """
     children: List[str] = []
 
     has_video = any(
@@ -891,6 +894,54 @@ def _build_tree_text(exp_types: List[str], data_formats: List[Dict[str, str]]) -
         tree += connector + c + "\n"
     return tree
 
+
+def _build_tree_text_v2(exp_types: List[str], data_formats: List[Dict[str, str]]) -> str:
+    """Construct a default folder tree spec using <placeholders>.
+
+    Placeholders:
+    - <SUBJECT_ID>: top-level subject folder name
+    - <YYYY_MM_DD> or <YYYYMMDD>: date folder name format
+    - <SESSION_ID>: session folder name
+    """
+    children: List[str] = []
+
+    has_video = any(
+        (row.get("Data type", "") + " " + row.get("Format", "")).lower().find("video") >= 0
+        for row in data_formats
+    )
+    if any(et.startswith("Electrophysiology") for et in exp_types):
+        children.append("raw_ephys_data")
+    if "Behavior and physiological measurements" in exp_types and has_video:
+        children.append("raw_behavior_video")
+    if "Optical Physiology" in exp_types:
+        children.append("raw_imaging_ophys")
+
+    # Always include processed data placeholder
+    children.extend(["processed_data"])  # "task_data",
+
+    ordered: List[str] = []
+    for name in [
+        "raw_ephys_data",
+        "raw_behavior_video",
+        "raw_imaging_ophys",
+        "opto_stim_settings",
+        "metadata",
+        "notes",
+        "task_data",
+        "processed_data",
+    ]:
+        if name in children and name not in ordered:
+            ordered.append(name)
+
+    lines: List[str] = []
+    lines.append("<SUBJECT_ID>")
+    lines.append("├── <YYYY_MM_DD>")
+    lines.append("│   ├── <SESSION_ID>")
+    for i, c in enumerate(ordered):
+        is_last = i == len(ordered) - 1
+        prefix = "│   └── " if is_last else "│   ├── "
+        lines.append(prefix + c)
+    return "\n".join(lines)
 def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     """Render the project definition form and return values."""
 
@@ -950,16 +1001,99 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     st.session_state[rows_key] = data_formats
 
     st.subheader("Data organization")
-    st.caption("Define your folder structure and naming conventions. Edit the tree text below.")
-    current_tree = initial.get("data_organization") or _build_tree_text(exp_types, data_formats)
+    st.caption(
+        "Define your folder structure and naming conventions. Use <...> for placeholders, e.g. <SUBJECT_ID>, <SESSION_ID>, <YYYYMMDD> or <YYYY_MM_DD>."
+    )
+    current_tree = initial.get("data_organization") or _build_tree_text_v2(exp_types, data_formats)
     tree_text = st.text_area(
         "Tree editor",
         value=current_tree,
         height=240,
         key=f"tree_editor_{initial.get('_mode', '')}",
     )
-    st.caption("Preview")
+    st.caption("Preview (spec with <placeholders>)")
     st.code(tree_text)
+
+    # Validate actual folders against the spec
+    def _validate_folder_structure(spec_text: str, base_dir: str) -> Tuple[bool, List[str]]:
+        import re as _re
+        # Recognized date placeholder patterns
+        date_patterns = {
+            "<YYYYMMDD>": r"[0-9]{8}",
+            "<YYYY_MM_DD>": r"[0-9]{4}_[0-9]{2}_[0-9]{2}",
+        }
+        raw_lines = [l.rstrip() for l in spec_text.splitlines() if l.strip()]
+        def _content(line: str) -> str:
+            return (
+                line.replace("├──", "").replace("└──", "").replace("│", "").replace("─", "").strip()
+            )
+        contents = [_content(l) for l in raw_lines]
+        has_subject = any("<SUBJECT_ID>" in c for c in contents)
+        has_session = any("<SESSION_ID>" in c for c in contents)
+        used_dates = [k for k in date_patterns if any(k in c for c in contents)]
+        session_line = next((c for c in contents if "<SESSION_ID>" in c), "")
+        date_embedded_in_session = session_line and any(tok in session_line for tok in used_dates)
+
+        msgs: List[str] = []
+        ok = True
+        if not os.path.isdir(base_dir):
+            return False, [f"Base directory does not exist: {base_dir}"]
+        subjects = [e for e in os.scandir(base_dir) if e.is_dir()]
+        if has_subject and not subjects:
+            ok = False
+            msgs.append("No subject folders found in base directory.")
+
+        def _has_date(name: str) -> bool:
+            if not used_dates:
+                return True
+            for token in used_dates:
+                if _re.search(date_patterns[token], name):
+                    return True
+            return False
+
+        for subj in subjects:
+            if used_dates and not date_embedded_in_session:
+                date_dirs = [d for d in os.scandir(subj.path) if d.is_dir()]
+                if not date_dirs:
+                    ok = False
+                    msgs.append(f"{subj.name}: no date folders found (expected {', '.join(used_dates)}).")
+                    continue
+                bad = [d.name for d in date_dirs if not _has_date(d.name) or '-' in d.name]
+                if bad:
+                    ok = False
+                    msgs.append(f"{subj.name}: invalid date folder(s): " + ", ".join(bad))
+                if has_session:
+                    for d in date_dirs:
+                        if not _has_date(d.name):
+                            continue
+                        sess_dirs = [s for s in os.scandir(d.path) if s.is_dir()]
+                        if not sess_dirs:
+                            ok = False
+                            msgs.append(f"{subj.name}/{d.name}: no session folders found (<SESSION_ID> expected).")
+            else:
+                if has_session:
+                    sess_dirs = [s for s in os.scandir(subj.path) if s.is_dir()]
+                    if not sess_dirs:
+                        ok = False
+                        msgs.append(f"{subj.name}: no session folders found (<SESSION_ID> expected).")
+                    elif used_dates:
+                        bad = [s.name for s in sess_dirs if not _has_date(s.name) or '-' in s.name]
+                        if bad:
+                            ok = False
+                            msgs.append(
+                                f"{subj.name}: session folders missing date token {', '.join(used_dates)}: " + ", ".join(bad)
+                            )
+
+        if ok:
+            msgs.append("Folder structure looks consistent with the spec.")
+        return ok, msgs
+
+    check_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+    st.caption(f"Structure check base: {check_root}")
+    if st.button("Check folder structure against spec", key=f"check_folder_{initial.get('_mode','')}"):
+        ok, messages = _validate_folder_structure(tree_text, check_root)
+        for m in messages:
+            (st.success if ok else st.warning)(m)
 
     # In 'Create new dataset', allow selecting the project root directory
     project_root_dir: str | None = None
