@@ -1628,7 +1628,6 @@ def main() -> None:
                             api_key = api_key_in
                         except Exception as e:
                             st.error(f"Failed to save config: {e}")
-                subj_id = st.text_input("brainSTEM Subject/Record ID (optional)", value="")
                 if api_key and st.button("Fetch metadata from brainSTEM"):
                     # Best-effort dynamic import; exact API may vary.
                     meta = {}
@@ -1639,17 +1638,14 @@ def main() -> None:
                             bs = None  # type: ignore
                         if bs is not None and hasattr(bs, "Client"):
                             client = bs.Client(api_key=api_key)  # type: ignore
-                            # Heuristic call; user may need to adapt to their account/data model
-                            if subj_id:
-                                meta = client.get_subject(subj_id)  # type: ignore
-                            else:
-                                meta = client.get_notes(limit=10)  # type: ignore
+                            # Fetch general notes/records; mapping to subjects is handled later
+                            meta = client.get_notes(limit=50)  # type: ignore
                         else:
                             # Fallback to plain HTTP; user may adjust endpoint
                             import requests  # type: ignore
                             headers = {"Authorization": f"Bearer {api_key}"}
                             base = "https://support.brainstem.org/api"
-                            url = f"{base}/notes" if not subj_id else f"{base}/subjects/{subj_id}"
+                            url = f"{base}/notes"
                             r = requests.get(url, headers=headers, timeout=20)
                             r.raise_for_status()
                             meta = r.json()
@@ -1882,7 +1878,10 @@ def main() -> None:
                 st.stop()
 
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            base_name = "u19_spreadsheet_template"
+            ds_for_name = _load_dataset_yaml(_project_root())
+            _pn = _sanitize_name(ds_for_name.get("project_name", "project")) if isinstance(ds_for_name, dict) else "project"
+            _ex = _sanitize_name(ds_for_name.get("experimenter", "user")) if isinstance(ds_for_name, dict) else "user"
+            base_name = f"{_pn}__{_ex}__template"
             c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("Save .xlsx to project root", key="save_xlsx_to_root", disabled=(bytes_xlsx is None)):
