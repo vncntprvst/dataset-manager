@@ -2327,6 +2327,9 @@ def main() -> None:
         return
 
     if mode == "runs":
+        import glob
+        import pandas as pd
+
         st.header("Conversion runs")
         st.caption("Track, run, and manage conversions for the current project.")
         root = _project_root()
@@ -2361,6 +2364,7 @@ def main() -> None:
                         "session_id": session_id,
                         "timestamp": ts,
                         "script": script_path,
+                        "output": output,
                         "status": status,
                         "log": log_path,
                     })
@@ -2368,6 +2372,67 @@ def main() -> None:
                         st.success("Conversion finished successfully.")
                     else:
                         st.error(f"Conversion {status}. See log.")
+
+        # Session registry from template
+        st.subheader("Session registry")
+        tmpl_path = None
+        for ext in ("csv", "xlsx", "xls"):
+            matches = glob.glob(os.path.join(root, f"*recordings*.{ext}"))
+            if matches:
+                tmpl_path = matches[0]
+                break
+        if tmpl_path is None:
+            st.info("No template spreadsheet found. Create one in 'Data description'.")
+        else:
+            try:
+                df_tmpl = pd.read_csv(tmpl_path) if tmpl_path.endswith(".csv") else pd.read_excel(tmpl_path)
+            except Exception as e:
+                st.error(f"Failed to read template: {e}")
+                df_tmpl = pd.DataFrame()
+            if not df_tmpl.empty and "session_id" in df_tmpl.columns:
+                runs = _load_runs(root)
+                run_map: Dict[str, List[Dict[str, Any]]] = {}
+                for r in runs:
+                    sid = str(r.get("session_id", ""))
+                    run_map.setdefault(sid, []).append(r)
+                rows: List[Dict[str, Any]] = []
+                for _, row in df_tmpl.iterrows():
+                    sid = str(row.get("session_id", ""))
+                    subj = row.get("subject_id") or row.get("subject") or ""
+                    date = row.get("session_start_time") or row.get("date") or row.get("session_date") or ""
+                    run_list = run_map.get(sid, [])
+                    last = run_list[-1] if run_list else None
+                    script = os.path.basename(last.get("script", "")) if last else ""
+                    ts = last.get("timestamp", "") if last else ""
+                    status = last.get("status", "") if last else ""
+                    out_path = last.get("output", "") if last else ""
+                    nwb_exists = bool(out_path) and os.path.exists(out_path)
+                    converted = bool(last) and status == "success" and nwb_exists
+                    rows.append({
+                        "subject": subj,
+                        "date": date,
+                        "session_id": sid,
+                        "converted": converted,
+                        "script": script,
+                        "run_time": ts,
+                        "status": status,
+                        "nwb_present": nwb_exists,
+                    })
+                df_runs = pd.DataFrame(rows)
+                if df_runs.empty:
+                    st.caption("No sessions listed in template.")
+                else:
+                    def _color(r):
+                        color = "#d7ffd9" if r.get("converted") else "#ffe7e7"
+                        return [f"background-color: {color}"] * len(r)
+
+                    st.dataframe(
+                        df_runs.style.apply(_color, axis=1),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+            else:
+                st.info("Template missing 'session_id' column or no data.")
 
         st.subheader("Previous runs")
         runs = _load_runs(root)
