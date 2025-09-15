@@ -9,7 +9,7 @@
 ![Last Commit](https://img.shields.io/github/last-commit/vncntprvst/dataset-manager.svg)
 ![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-ff4b4b.svg)
 
-<sup>The version is derived automatically from the latest Git tag (setuptools-scm). Create a new tag like <code>git tag -a v0.2.0 -m "v0.2.0" && git push --tags</code> to publish a new release version.</sup>
+<sup>Version reflects the value in `pyproject.toml`. Update there first, then adjust the badge.</sup>
 
 A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB / DANDI archive submission requirements.
 
