@@ -390,6 +390,30 @@ def _sanitize_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", s.strip())
 
 
+def _normalize_field_name(name: str) -> str:
+    """Normalize synonymous field names to a canonical identifier.
+
+    Currently de-duplicates variants of session_start_time like
+    "session_start_time(YYYY-MM-DD HH:MM)" to "session_start_time".
+    """
+    s = str(name).strip()
+    if re.match(r"^session_start_time\b", s):
+        return "session_start_time"
+    return s
+
+
+def _dedupe_fields(fields: List[str]) -> List[str]:
+    """Return fields with normalization and stable de-duplication."""
+    out: List[str] = []
+    seen: Set[str] = set()
+    for f in fields:
+        cf = _normalize_field_name(f)
+        if cf not in seen:
+            out.append(cf)
+            seen.add(cf)
+    return out
+
+
 def _compose_script_name(project_name: str, experimenter: str, modalities: List[str]) -> str:
     # Keep filenames short: avoid embedding modality names which can be long
     stamp = datetime.now().strftime("%Y%m%d")
@@ -2247,6 +2271,7 @@ def main() -> None:
 
             # DANDI/NWB always included
             fields = collect_required_fields(experiment_types=exp_types, include_dandi=True, include_nwb=True)
+            fields = _dedupe_fields(fields)
             
             # Use brainSTEM-aware field splitting if brainSTEM is enabled
             use_brainstem = st.session_state.get("use_brainstem", False)
@@ -2566,7 +2591,7 @@ def main() -> None:
             path = tmpl_paths[labels.index(choice)]
             try:
                 df = pd.read_excel(path, sheet_name=0, nrows=0)
-                columns = list(df.columns)
+                columns = _dedupe_fields(list(df.columns))
             except Exception as e:
                 st.error(f"Failed to read columns from template: {e}")
                 return
