@@ -37,6 +37,128 @@ def _set_mode(new_mode: str):
     st.session_state["mode"] = new_mode
 
 
+# ------------------------------
+# Dataset repository catalog and helpers
+# ------------------------------
+
+def _repository_catalog() -> Dict[str, Dict[str, Any]]:
+    """Static catalog of supported data repositories with fields and help.
+
+    Returns a dict keyed by display name. Each entry contains:
+    - site: Main website URL
+    - description: One-line description
+    - howto: Markdown string with account + API/token instructions
+    - config_fields: list of field specs: {key,label,type}
+    - expected_metadata_fields: list of metadata field names expected when publishing
+    """
+    return {
+        "DANDI Archive": {
+            "site": "https://dandiarchive.org",
+            "description": "Archive for neurophysiology data with NWB focus.",
+            "howto": (
+                "Prerequisites\n\n"
+                "- Register for DANDI and obtain an API key.\n"
+                "- Production: https://dandiarchive.org – Sandbox: https://sandbox.dandiarchive.org (keys/logins differ).\n\n"
+                "Creating a new Dandiset\n\n"
+                "- Log in and click NEW DANDISET (top-right).\n"
+                "- Fill in title and description; an identifier is assigned.\n"
+                "- Once the draft is created, you can edit the metadata (License, Keywords ...).\n\n"
+                "Docs: https://docs.dandiarchive.org/user-guide-sharing/creating-dandiset/"
+            ),
+            "config_fields": [
+                {"key": "api_key", "label": "DANDI API key", "type": "password"},
+                {"key": "dandiset_id", "label": "Dandiset ID (if exists)", "type": "text"},
+                {"key": "server", "label": "Server (production/sandbox URL)", "type": "text"},
+            ],
+            "expected_metadata_fields": [
+                "license", "keywords", "contributor", "affiliation", "funding", "citation",
+            ],
+        },
+        "Dryad": {
+            "site": "https://datadryad.org",
+            "description": "General-purpose data repository for research data.",
+            "howto": (
+                "- Create a Dryad account.\n"
+                "- Obtain an API token if using API-based uploads.\n"
+                "Docs: https://datadryad.org/stash/help"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Dryad API token", "type": "password"},
+                {"key": "doi", "label": "Dataset DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Dataverse": {
+            "site": "https://dataverse.org",
+            "description": "Open-source data repository platform used by many institutions.",
+            "howto": (
+                "- Create an account on a Dataverse instance (typically Harvard's - https://dataverse.harvard.edu/).\n"
+                "- Generate a personal API token (Account → API Token).\n"
+                "Docs: https://guides.dataverse.org/en/latest/user/account.html#api-tokens"
+            ),
+            "config_fields": [
+                {"key": "base_url", "label": "Dataverse base URL", "type": "text"},
+                {"key": "api_token", "label": "API token", "type": "password"},
+                {"key": "doi", "label": "Dataset DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Zenodo": {
+            "site": "https://zenodo.org",
+            "description": "General-purpose open research repository by CERN.",
+            "howto": (
+                "- Log in (GitHub/ORCID/Google) and create a personal access token.\n"
+                "- Sandbox: https://sandbox.zenodo.org for testing.\n"
+                "Docs: https://developers.zenodo.org/#api-access"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Zenodo API token", "type": "password"},
+                {"key": "doi", "label": "DOI (if exists)", "type": "text"},
+                {"key": "server", "label": "Server (production/sandbox URL)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Figshare": {
+            "site": "https://figshare.com",
+            "description": "Repository for papers, datasets, and figures.",
+            "howto": (
+                "- Create a Figshare account.\n"
+                "- Generate a personal token (Applications → Create personal token).\n"
+                "Docs: https://docs.figshare.com/"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Figshare API token", "type": "password"},
+                {"key": "article_id", "label": "Article ID / DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "OSF": {
+            "site": "https://osf.io",
+            "description": "Open Science Framework project and data hosting.",
+            "howto": (
+                "- Create an OSF account.\n"
+                "- Generate a personal access token (Settings → Personal access tokens).\n"
+                "Docs: https://developer.osf.io/"
+            ),
+            "config_fields": [
+                {"key": "access_token", "label": "OSF access token", "type": "password"},
+                {"key": "project_id", "label": "Project ID / DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+    }
+
+
+def _repo_expected_fields(ds: Dict[str, Any]) -> List[str]:
+    repo = (ds or {}).get("repository", {})
+    name = repo.get("name")
+    if not name:
+        return []
+    cat = _repository_catalog()
+    entry = cat.get(name, {})
+    return list(entry.get("expected_metadata_fields", []))
+
+
 def _ecephys_acq_types() -> List[str]:
     """Best-effort retrieval of Extracellular acquisition types from NeuroConv.
 
@@ -1674,6 +1796,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Actions")
         st.button("Project definition", width="stretch", on_click=_set_mode, args=("project",))
+        st.button("Dataset repository", width="stretch", on_click=_set_mode, args=("repo",))
         st.button("Data description", width="stretch", on_click=_set_mode, args=("template",))
         st.button("Create conversion scripts", width="stretch", on_click=_set_mode, args=("scripts",))
         st.button("Conversion runs", width="stretch", on_click=_set_mode, args=("runs",))
@@ -1739,11 +1862,92 @@ def main() -> None:
                     if not data["project_name"] or not data["experimenter"]:
                         st.error("Project Name and Experimenter are required.")
                     else:
+                        # Preserve repository settings and other keys not managed by Project form
+                        try:
+                            with open(dataset_path, "r", encoding="utf-8") as f:
+                                existing_all = yaml.safe_load(f) or {}
+                        except Exception:
+                            existing_all = {}
+                        if isinstance(existing_all, dict) and "repository" in existing_all:
+                            data["repository"] = existing_all.get("repository")
                         with open(dataset_path, "w", encoding="utf-8") as f:
                             yaml.safe_dump(data, f)
                         st.success(f"Updated {dataset_path}")
             else:
                 st.info(f"No dataset.yaml found in {edit_root}.")
+        return
+
+    if mode == "repo":
+        st.header("Dataset repository")
+        st.caption("Select where you plan to publish, and provide credentials and required metadata.")
+
+        root = _project_root()
+        ds = _load_dataset_yaml(root)
+        repo_cfg = ds.get("repository", {}) if isinstance(ds, dict) else {}
+
+        catalog = _repository_catalog()
+        options = list(catalog.keys())
+        current = repo_cfg.get("name") if isinstance(repo_cfg, dict) else None
+        try:
+            idx = options.index(current) if current in options else None
+        except Exception:
+            idx = None
+
+        sel = st.selectbox("Select a repository", options=options, index=idx if idx is not None else None, placeholder="Choose.")
+        if not sel:
+            st.info("Choose a repository to see details and settings.")
+            return
+
+        entry = catalog.get(sel, {})
+        with st.expander(f"About {sel}", expanded=False):
+            st.write(entry.get("description", ""))
+            site = entry.get("site")
+            if site:
+                st.markdown(f"Website: [{site}]({site})")
+
+        howto = entry.get("howto")
+        if howto:
+            st.info(howto)
+
+        st.subheader("Repository settings")
+        cfg = dict(repo_cfg.get("config", {})) if isinstance(repo_cfg, dict) else {}
+        new_cfg: Dict[str, Any] = {}
+        for f in entry.get("config_fields", []):
+            key = str(f.get("key"))
+            label = str(f.get("label", key))
+            ftype = str(f.get("type", "text"))
+            default_val = cfg.get(key, "")
+            if ftype == "password":
+                new_cfg[key] = st.text_input(label, value=default_val, type="password")
+            else:
+                new_cfg[key] = st.text_input(label, value=default_val)
+
+        st.subheader("Repository metadata")
+        meta = dict(repo_cfg.get("metadata", {})) if isinstance(repo_cfg, dict) else {}
+        new_meta: Dict[str, Any] = {}
+        for mkey in entry.get("expected_metadata_fields", []):
+            label = mkey.capitalize()
+            placeholder = "Comma-separated" if mkey == "keywords" else ""
+            if mkey in ("citation",):
+                new_meta[mkey] = st.text_area(label, value=meta.get(mkey, ""))
+            else:
+                new_meta[mkey] = st.text_input(label, value=meta.get(mkey, ""), placeholder=placeholder)
+
+        if st.button("Save repository settings", type="primary"):
+            ds = ds if isinstance(ds, dict) else {}
+            ds.setdefault("project_name", ds.get("project_name", ""))
+            ds["repository"] = {
+                "name": sel,
+                "config": new_cfg,
+                "metadata": new_meta,
+            }
+            try:
+                os.makedirs(root, exist_ok=True)
+                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                    yaml.safe_dump(ds, f)
+                st.success("Saved repository settings to dataset.yaml")
+            except Exception as e:
+                st.error(f"Failed to save repository settings: {e}")
         return
 
     if mode == "template":
@@ -1870,6 +2074,21 @@ def main() -> None:
                 # Remove from user_fields and ensure in auto_fields, preserving order
                 user_fields = [f for f in user_fields if f not in must_auto]
                 # Keep existing order and append any missing
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
+
+            # Ensure repository-required fields are auto-populated (not in the XLSX template)
+            try:
+                ds_for_repo = _load_dataset_yaml(_project_root())
+            except Exception:
+                ds_for_repo = {}
+            repo_auto = set(_repo_expected_fields(ds_for_repo))
+            if repo_auto:
+                must_auto = [f for f in fields if f in repo_auto]
+                user_fields = [f for f in user_fields if f not in must_auto]
                 auto_set = set(auto_fields)
                 for f in must_auto:
                     if f not in auto_set:
@@ -2104,6 +2323,20 @@ def main() -> None:
             # Use brainSTEM-aware field splitting if brainSTEM is enabled  
             use_brainstem = st.session_state.get("use_brainstem", False)
             user_fields, auto_fields = split_user_vs_auto(columns, use_brainstem=use_brainstem)
+            # Move repository-required fields to auto
+            try:
+                ds_for_repo = _load_dataset_yaml(_project_root())
+            except Exception:
+                ds_for_repo = {}
+            repo_auto = set(_repo_expected_fields(ds_for_repo))
+            if repo_auto:
+                must_auto = [f for f in columns if f in repo_auto]
+                user_fields = [f for f in user_fields if f not in must_auto]
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
