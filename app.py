@@ -1678,8 +1678,7 @@ def main() -> None:
         st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
         st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
         st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
-        # Temporarily hide Neurosift until upstream fix is available
-        # st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
+        st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
         st.divider()
         if st.button("Quit", type="secondary", use_container_width=True):
             os._exit(0)
@@ -1770,7 +1769,14 @@ def main() -> None:
                     st.experimental_rerun()
 
             # Optional: fetch metadata from brainSTEM.org
-            st.checkbox("Fetch notes/metadata from brainSTEM.org", value=False, key="use_brainstem")
+            # Persist preference across page switches by separating widget state from stored value
+            _use_bs_pref = st.session_state.get("use_brainstem", False)
+            _use_bs_checked = st.checkbox(
+                "Fetch notes/metadata from brainSTEM.org",
+                value=_use_bs_pref,
+                key="use_brainstem_widget",
+            )
+            st.session_state["use_brainstem"] = _use_bs_checked
             if st.session_state.get("use_brainstem"):
                 root = _project_root()
                 cfg_path = os.path.join(root, "brainstem_config.yaml")

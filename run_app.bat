@@ -34,8 +34,8 @@ if %ERRORLEVEL% EQU 0 (
     streamlit run app.py
 )
 
-@REM @REM Keep the window open after the script completes
-@REM pause
+@REM Keep the window open after the script completes
+pause
 
 endlocal
 
