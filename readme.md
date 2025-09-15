@@ -1,5 +1,16 @@
 # Dataset manager
 
+<!-- Badges -->
+![Version](https://img.shields.io/github/v/tag/vncntprvst/dataset-manager?label=version&sort=semver)
+![License](https://img.shields.io/badge/License-CC--BY--4.0-lightgrey.svg)
+![Python](https://img.shields.io/badge/Python-3.11%2B-informational.svg)
+![Status](https://img.shields.io/badge/status-alpha-orange.svg)
+![Issues](https://img.shields.io/github/issues/vncntprvst/dataset-manager.svg)
+![Last Commit](https://img.shields.io/github/last-commit/vncntprvst/dataset-manager.svg)
+![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-ff4b4b.svg)
+
+<sup>The version is derived automatically from the latest Git tag (setuptools-scm). Create a new tag like <code>git tag -a v0.2.0 -m "v0.2.0" && git push --tags</code> to publish a new release version.</sup>
+
 A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB / DANDI archive submission requirements.
 
 This project was created as part of the Team BRAIN Circuit Program (U19) NS137920: _High- and low-level computations for coordination of orofacial motor actions_
