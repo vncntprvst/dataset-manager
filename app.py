@@ -1732,7 +1732,7 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     st.code(tree_text)
 
     # Validate actual folders against the spec (generalized level-driven validator)
-    def _validate_folder_structure(spec_text: str, base_dir: str, level_cfgs: List[Dict[str, str]]) -> Tuple[bool, List[str]]:
+    def _validate_folder_structure(spec_text: str, base_dir: str, level_cfgs: List[Dict[str, str]]) -> Tuple[bool, List[str], Dict[str, Any]]:
         """
         Validate the project directory structure against user-defined level configurations.
 
@@ -1747,6 +1747,13 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         """
         ok = True
         messages: List[str] = []
+        stats: Dict[str, Any] = {
+            "level_counts": [],  # list of dicts per level
+            "invalid": 0,
+            "misplaced": 0,
+            "recording_sessions": 0,
+            "recording_level_index": None,
+        }
         if not os.path.isdir(base_dir):
             return False, [f"Base directory does not exist: {base_dir}"]
 
@@ -1818,6 +1825,16 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
                             invalid_names.append(name)
 
             cumulative_valid_paths.append(valid_names)
+            stats["level_counts"].append({
+                "level": level_index + 1,
+                "type": level_cfgs[level_index].get("type"),
+                "placeholder": placeholder,
+                "valid": len(valid_names),
+                "invalid": len(invalid_names),
+                "misplaced": len(misplaced_names),
+            })
+            stats["invalid"] += len(invalid_names)
+            stats["misplaced"] += len(misplaced_names)
 
             # Report issues for this level
             level_label = level_cfgs[level_index].get("type", f"Level {level_index + 1}")
@@ -1857,18 +1874,29 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
 
         # Additional recording session presence check
         if recording_level_idx is not None:
+            stats["recording_level_index"] = recording_level_idx
+            if recording_level_idx < len(cumulative_valid_paths):
+                stats["recording_sessions"] = len(cumulative_valid_paths[recording_level_idx])
             if recording_level_idx >= len(cumulative_valid_paths) or not cumulative_valid_paths[recording_level_idx]:
                 ok = False
                 messages.append("No recording session folders detected at the configured recording level.")
 
         if ok:
             messages.append("Folder structure looks consistent with the spec.")
-        return ok, messages
+        return ok, messages, stats
 
     check_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
     st.caption(f"Structure check base: {check_root}")
     if st.button("Check folder structure against spec", key=f"check_folder_{initial.get('_mode','')}"):
-        ok, messages = _validate_folder_structure(tree_text, check_root, level_configs)
+        ok, messages, stats = _validate_folder_structure(tree_text, check_root, level_configs)
+        # Summary counts first
+        if stats:
+            lvl_summ = ", ".join(
+                f"L{lc['level']} {lc.get('type') or ''}: {lc['valid']} valid" + (f", {lc['invalid']} invalid" if lc['invalid'] else "") + (f", {lc['misplaced']} misplaced" if lc['misplaced'] else "")
+                for lc in stats.get('level_counts', [])
+            )
+            summary = f"Summary – {lvl_summ}. Total invalid: {stats.get('invalid',0)}, misplaced: {stats.get('misplaced',0)}. Recording sessions: {stats.get('recording_sessions',0)}."
+            (st.success if ok else st.warning)(summary)
         for m in messages:
             (st.success if ok else st.warning)(m)
 
@@ -1900,12 +1928,12 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
 
 def main() -> None:
     st.title("Dataset Manager for U19 Projects")
-    st.caption("Describe your project and create scripts to package and publish your data.")
+    # st.caption("Describe your project and create scripts to package and publish your data.")
 
     # Sidebar: primary actions
     with st.sidebar:
         st.header("Actions")
-        st.button("Project definition", width="stretch", on_click=_set_mode, args=("project",))
+        st.button("Project overview", width="stretch", on_click=_set_mode, args=("project",))
         st.button("Dataset repository", width="stretch", on_click=_set_mode, args=("repo",))
         st.button("Data description", width="stretch", on_click=_set_mode, args=("template",))
         st.button("Create conversion scripts", width="stretch", on_click=_set_mode, args=("scripts",))
@@ -1920,8 +1948,8 @@ def main() -> None:
     mode = st.session_state.get("mode", "project")
 
     if mode == "project":
-        st.header("Project definition")
-        st.write("Describe your project organization and data formats.")
+        st.header("Project overview")
+        st.caption("Describe your project organization and data formats.")
 
         project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
         dataset_path = os.path.join(project_root, "dataset.yaml")
@@ -2211,23 +2239,44 @@ def main() -> None:
             root = _project_root()
             ds = _load_dataset_yaml(root)
             exp_types: List[str] = list(ds.get("experimental_modalities", [])) if ds else []
-            st.subheader("Experimental modalities")
+            st.write("Metadata will be extracted from these experimental modalities:")
             st.write(", ".join(exp_types) if exp_types else "(none)")
             if not ds:
                 st.info("No dataset.yaml found in the project root. Define modalities on the Project page.")
                 if st.button("Open Project page", key="go_project_from_template"):
                     _set_mode("project")
                     st.experimental_rerun()
-
+            st.write("Notes and other metadata")
             # Optional: fetch metadata from brainSTEM.org
             # Persist preference across page switches by separating widget state from stored value
+            # Persist preference in dataset.yaml (key: use_brainstem)
+            ds_cfg_for_brainstem = ds if isinstance(ds, dict) else _load_dataset_yaml(root)
+            stored_pref = False
+            if isinstance(ds_cfg_for_brainstem, dict):
+                stored_pref = bool(ds_cfg_for_brainstem.get("use_brainstem", False))
+            # Session state mirrors stored value unless user changes checkbox this render
+            if "use_brainstem" not in st.session_state:
+                st.session_state["use_brainstem"] = stored_pref
             _use_bs_pref = st.session_state.get("use_brainstem", False)
             _use_bs_checked = st.checkbox(
                 "Fetch notes/metadata from brainSTEM.org",
                 value=_use_bs_pref,
                 key="use_brainstem_widget",
+                help="If enabled, subject/session fields will be auto-populated from brainSTEM where possible. Preference saved in dataset.yaml.",
             )
-            st.session_state["use_brainstem"] = _use_bs_checked
+            # If user changed the value, persist it immediately
+            if _use_bs_checked != _use_bs_pref:
+                st.session_state["use_brainstem"] = _use_bs_checked
+                try:
+                    merged_ds = _load_dataset_yaml(root)
+                    if not isinstance(merged_ds, dict):
+                        merged_ds = {}
+                    merged_ds["use_brainstem"] = _use_bs_checked
+                    with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                        yaml.safe_dump(merged_ds, f)
+                    st.caption("brainSTEM preference saved to dataset.yaml")
+                except Exception as e:
+                    st.warning(f"Could not persist brainSTEM preference: {e}")
             if st.session_state.get("use_brainstem"):
                 root = _project_root()
                 cfg_path = os.path.join(root, "brainstem_config.yaml")
@@ -2238,52 +2287,98 @@ def main() -> None:
                             api_key = (yaml.safe_load(f) or {}).get("api_key")
                     except Exception:
                         api_key = None
-                if not api_key:
-                    st.info("No brainSTEM API key configured. Provide and save it below.")
-                    api_key_in = st.text_input("brainSTEM API key", type="password")
-                    if st.button("Save brainSTEM config"):
-                        try:
-                            with open(cfg_path, "w", encoding="utf-8") as f:
-                                yaml.safe_dump({"api_key": api_key_in}, f)
-                            st.success(f"Saved API key to {cfg_path}")
-                            api_key = api_key_in
-                        except Exception as e:
-                            st.error(f"Failed to save config: {e}")
-                if api_key and st.button("Fetch metadata from brainSTEM"):
-                    # Best-effort dynamic import; exact API may vary.
-                    meta = {}
+                api_key_in = st.text_input(
+                    "brainSTEM API key",
+                    type="password",
+                    value="" if api_key is None else api_key,
+                    help="Stored (unencrypted) in brainstem_config.yaml at the project root.",
+                )
+                if st.button("Save brainSTEM API key"):
                     try:
-                        try:
-                            import brainstem_python_api_tools as bs  # type: ignore
-                        except Exception:
-                            bs = None  # type: ignore
-                        if bs is not None and hasattr(bs, "Client"):
-                            client = bs.Client(api_key=api_key)  # type: ignore
-                            # Fetch general notes/records; mapping to subjects is handled later
-                            meta = client.get_notes(limit=50)  # type: ignore
-                        else:
-                            # Fallback to plain HTTP; user may adjust endpoint
-                            import requests  # type: ignore
-                            headers = {"Authorization": f"Bearer {api_key}"}
-                            base = "https://support.brainstem.org/api"
-                            url = f"{base}/notes"
-                            r = requests.get(url, headers=headers, timeout=20)
-                            r.raise_for_status()
-                            meta = r.json()
-                        st.session_state["brainstem_metadata"] = meta
-                        st.session_state["brainstem_fields"] = extract_brainstem_values(meta)
-                        st.success("Fetched metadata from brainSTEM.")
-                        st.caption("Preview of fetched fields (truncated):")
-                        try:
-                            st.code(json.dumps(meta, indent=2)[:2000])
-                        except Exception:
-                            st.write(meta)
-                        mapped = st.session_state.get("brainstem_fields", {})
-                        if mapped:
-                            st.caption("Mapped field values:")
-                            st.json(mapped)
+                        with open(cfg_path, "w", encoding="utf-8") as f:
+                            yaml.safe_dump({"api_key": api_key_in}, f)
+                        st.success(f"Saved API key to {cfg_path}")
+                        api_key = api_key_in
                     except Exception as e:
-                        st.error(f"Failed to fetch brainSTEM metadata: {e}")
+                        st.error(f"Failed to save config: {e}")
+                st.caption("Test fetching metadata for a specific Session ID (case-sensitive).")
+                test_col1, test_col2 = st.columns([2,1])
+                with test_col1:
+                    session_id_input = st.text_input("Session ID to test", key="brainstem_test_session_id")
+                with test_col2:
+                    limit = st.number_input("Max notes", min_value=1, max_value=200, value=50, step=1, help="Limit notes fetched for inspection.")
+                if st.button("Test brainSTEM fetch", disabled=not bool(api_key)):
+                    if not api_key:
+                        st.error("API key required to fetch metadata.")
+                    elif not session_id_input.strip():
+                        st.warning("Enter a Session ID to test.")
+                    else:
+                        try:
+                            import requests  # type: ignore
+                            sid = session_id_input.strip()
+                            headers = {"Authorization": f"Bearer {api_key}"}
+                            base = "https://www.brainstem.org/api"
+                            # Prefer private portal (requires token); fallback to public if 403/401
+                            params = {
+                                "filter{name}": sid,
+                                "limit": int(limit),
+                            }
+                            url_private = f"{base}/private/stem/session/"
+                            resp = requests.get(url_private, headers=headers, params=params, timeout=20)
+                            if resp.status_code in (401, 403):
+                                url_public = f"{base}/public/stem/session/"
+                                resp = requests.get(url_public, params=params, timeout=20)
+                            resp.raise_for_status()
+                            payload = resp.json()
+                            # Normalize list of sessions
+                            if isinstance(payload, dict):
+                                if "sessions" in payload and isinstance(payload["sessions"], list):
+                                    sessions = payload["sessions"]
+                                elif "results" in payload and isinstance(payload["results"], list):
+                                    sessions = payload["results"]
+                                else:
+                                    # If detail view (single session)
+                                    if "session" in payload and isinstance(payload["session"], dict):
+                                        sessions = [payload["session"]]
+                                    else:
+                                        # Fallback: treat as unknown structure
+                                        sessions = []
+                            elif isinstance(payload, list):
+                                sessions = payload
+                            else:
+                                sessions = []
+                            # If filter didn't return anything, optionally attempt direct ID lookup
+                            if not sessions and len(sid) > 10:  # heuristic: looks like a UUID
+                                detail_url = f"{url_private}{sid}/"
+                                detail_resp = requests.get(detail_url, headers=headers, timeout=20)
+                                if detail_resp.status_code in (401, 403):
+                                    detail_url = f"{base}/public/stem/session/{sid}/"
+                                    detail_resp = requests.get(detail_url, timeout=20)
+                                if detail_resp.ok:
+                                    detail_payload = detail_resp.json()
+                                    if isinstance(detail_payload, dict):
+                                        if "session" in detail_payload and isinstance(detail_payload["session"], dict):
+                                            sessions = [detail_payload["session"]]
+                                        else:
+                                            sessions = [detail_payload]
+                            # Extract field candidates from sessions
+                            st.session_state["brainstem_metadata"] = payload
+                            st.session_state["brainstem_fields"] = extract_brainstem_values(sessions if sessions else payload)
+                            if sessions:
+                                st.success(f"Fetched {len(sessions)} session record(s) matching '{sid}'.")
+                            else:
+                                st.warning("No sessions matched the provided name/ID.")
+                            with st.expander("Raw session payload (truncated)"):
+                                try:
+                                    st.code(json.dumps(payload, indent=2)[:4000])
+                                except Exception:
+                                    st.write(payload)
+                            mapped = st.session_state.get("brainstem_fields", {})
+                            if mapped:
+                                st.caption("Extracted/mapped candidate field values:")
+                                st.json(mapped)
+                        except Exception as e:
+                            st.error(f"Failed to fetch brainSTEM metadata: {e}")
 
             # DANDI/NWB always included
             fields = collect_required_fields(experiment_types=exp_types, include_dandi=True, include_nwb=True)
@@ -2473,20 +2568,36 @@ def main() -> None:
                 except Exception:
                     auto_fields = af_df["Field"].tolist()
 
+            # Accurate session counting using level_configs (recording level depth) if present in dataset.yaml
             dataset_dir = st.text_input(
-                "Dataset directory (to count sessions)",
+                "Dataset root directory (for session counting)",
                 value=_project_root(),
-                placeholder="Folder with one subfolder per session",
+                placeholder="Root folder containing subject/session hierarchy",
             )
             n_rows = 1
             if dataset_dir and os.path.isdir(dataset_dir):
                 try:
-                    n_rows = sum(1 for e in os.scandir(dataset_dir) if e.is_dir()) or 1
-                    st.info(f"Detected {n_rows} session folders in selected directory.")
-                except Exception:
-                    st.warning("Could not count subdirectories; defaulting to 1 row.")
+                    ds_cfg_for_count = _load_dataset_yaml(_project_root())
+                    level_cfgs = []
+                    rec_depth = None
+                    if isinstance(ds_cfg_for_count, dict):
+                        level_cfgs = ds_cfg_for_count.get("level_configs", []) or []
+                        try:
+                            rec_depth = int(ds_cfg_for_count.get("recording_level_depth")) if ds_cfg_for_count.get("recording_level_depth") is not None else None
+                        except Exception:
+                            rec_depth = None
+                    if level_cfgs:
+                        discovered = _discover_sessions_by_levels(dataset_dir, level_cfgs, rec_depth)
+                        n_rows = max(1, len(discovered))
+                        st.info(f"Detected {n_rows} recording session folder(s) via configured hierarchy.")
+                    else:
+                        # Fallback: simple immediate subdirectory count
+                        n_rows = sum(1 for e in os.scandir(dataset_dir) if e.is_dir()) or 1
+                        st.info(f"Detected {n_rows} top-level session folder(s) (no level configuration found).")
+                except Exception as e:
+                    st.warning(f"Could not count session folders ({e}); defaulting to 1 row.")
             else:
-                st.caption("Provide a dataset directory to set the number of rows automatically.")
+                st.caption("Provide the dataset root to count session folders automatically.")
 
             final_fields = user_fields + [f for f in auto_fields if f not in user_fields]
 
@@ -2532,7 +2643,6 @@ def main() -> None:
 
             # Minimal completeness check for NWB mapping
             chk = check_template_columns(final_fields, exp_types)
-            st.subheader("Template Completeness Check")
             if chk.get("ok"):
                 st.success("Minimum template fields present for NWB mapping.")
             else:
@@ -2545,7 +2655,8 @@ def main() -> None:
                 for mod, missing in miss_mod.items():
                     st.write(f"- {mod}: missing " + ", ".join(missing))
 
-            st.subheader("Download Template")
+            st.subheader("Download a template session metadata spreadsheet")
+            st.caption("Generate a blank template XLSX or CSV file with all required fields as column headers. Edit as needed. Fields in the 'Auto-populated' list above will be filled automatically (when possible) by the conversion script, either from your project configuration, from brainSTEM.org metadata (if enabled), or from the data files themselves.")
             bytes_xlsx = None
             bytes_csv = None
             try:
@@ -2903,9 +3014,10 @@ def main() -> None:
         ing_dir = _ingestion_dir(root)
         _ensure_dir(ing_dir)
 
-        # Resolve session registry template and session list
+        # --- Session file (template/registry) handling ---
         ds_cfg = _load_dataset_yaml(root)
         persisted_template = ds_cfg.get("session_registry_template") if isinstance(ds_cfg, dict) else None
+
         def _detect_latest_template(r: str) -> str | None:
             candidates: List[str] = []
             for ext in ("csv", "xlsx", "xls"):
@@ -2914,15 +3026,78 @@ def main() -> None:
                 return None
             candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
             return candidates[0]
-        tmpl_path = persisted_template if (persisted_template and os.path.exists(persisted_template)) else _detect_latest_template(root)
 
-        # Build session list from project-defined directory levels; fallback to template/scan
+        latest_auto = _detect_latest_template(root)
+        # Build dropdown list: persisted + any xlsx/csv in root
+        root_files = [p for p in glob.glob(os.path.join(root, "*.xlsx")) + glob.glob(os.path.join(root, "*.csv"))]
+        # Deduplicate while preserving order
+        seen: Set[str] = set()
+        session_file_options: List[str] = []
+        for p in ([persisted_template] if persisted_template else []) + [latest_auto] + sorted(root_files):
+            if p and os.path.exists(p) and p not in seen:
+                session_file_options.append(p)
+                seen.add(p)
+
+        # Determine default selection logic
+        default_session_file = None
+        if persisted_template and os.path.exists(persisted_template):
+            default_session_file = persisted_template
+        elif latest_auto and os.path.exists(latest_auto):
+            default_session_file = latest_auto
+
+        # Persist selection in session state
+        sel_key = "session_file_path"
+        if sel_key not in st.session_state:
+            st.session_state[sel_key] = default_session_file or ""
+
+        # st.subheader("Run a conversion")
+        sf_col1, sf_col2 = st.columns([3,2])
+        with sf_col1:
+            picked_session_file = st.selectbox(
+                "Session metadata spreadsheet",
+                options=session_file_options or ["(none detected)"] ,
+                index=(session_file_options.index(st.session_state[sel_key]) if (st.session_state.get(sel_key) in session_file_options) else 0) if session_file_options else None,
+            ) if session_file_options else None
+            if picked_session_file and picked_session_file != st.session_state.get(sel_key):
+                st.session_state[sel_key] = picked_session_file
+        with sf_col2:
+            custom_path = st.text_input("Custom path", value=st.session_state.get(sel_key, "") or "", placeholder="/path/to/recordings.xlsx or .csv")
+            if custom_path and custom_path != st.session_state.get(sel_key):
+                st.session_state[sel_key] = custom_path
+        effective_session_file = st.session_state.get(sel_key, "")
+
+        # Validate existence; auto-fallback to latest_auto if needed
+        if effective_session_file and not os.path.exists(effective_session_file):
+            st.warning("Selected session file not found on disk – attempting fallback to most recent auto-detected file.")
+            if latest_auto and os.path.exists(latest_auto):
+                effective_session_file = latest_auto
+                st.session_state[sel_key] = latest_auto
+                st.info(f"Fell back to latest detected file: {os.path.basename(latest_auto)}")
+            else:
+                st.warning("No session file available. Create one from the Data description page.")
+                effective_session_file = ""
+
+        # Persist chosen file into dataset.yaml when changed
+        if isinstance(ds_cfg, dict):
+            prev = ds_cfg.get("session_registry_template")
+            if effective_session_file and effective_session_file != prev:
+                try:
+                    ds_cfg["session_registry_template"] = effective_session_file
+                    with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                        yaml.safe_dump(ds_cfg, f)
+                    st.caption("Session file path saved to dataset.yaml")
+                except Exception as e:
+                    st.warning(f"Could not save session file path: {e}")
+
+        # --- Build session list (directories + optional spreadsheet) ---
         df_tmpl = None
-        if tmpl_path:
+        if effective_session_file:
             try:
-                df_tmpl = pd.read_csv(tmpl_path) if tmpl_path.endswith(".csv") else pd.read_excel(tmpl_path)
+                df_tmpl = pd.read_csv(effective_session_file) if effective_session_file.endswith('.csv') else pd.read_excel(effective_session_file)
             except Exception:
                 df_tmpl = None
+
+        # Build session list from project-defined directory levels; fallback to spreadsheet if provided
         session_rows: List[Dict[str, Any]] = []
         level_cfgs = ds_cfg.get("level_configs") if isinstance(ds_cfg, dict) else None
         if isinstance(level_cfgs, list) and level_cfgs:
@@ -2957,26 +3132,73 @@ def main() -> None:
                 except Exception:
                     pass
 
-        # Launch a new conversion
-        st.subheader("Run a conversion")
+        # Script selection and session table (integrated)
         scripts = [p for p in sorted(os.listdir(ing_dir)) if p.endswith('.py')]
         if not scripts:
             st.info("No scripts in ingestion_scripts. Create one in 'Create conversion scripts'.")
         else:
             sel = st.selectbox("Script", scripts, index=0, key="run_script_sel")
-            # Pick a session
-            labels = [
-                f"{row.get('session_id','')}" + (f"  —  {row.get('subject_id','')}" if row.get('subject_id') else "")
-                for row in session_rows
-            ]
-            pick_label = st.selectbox("Pick a session", options=(labels or ["(no sessions found)"])) if labels else None
-            pick_idx = (labels.index(pick_label) if (labels and pick_label in labels) else None)
-            picked = session_rows[pick_idx] if (pick_idx is not None) else {"session_id": "", "subject_id": ""}
-            session_id = picked.get("session_id", "")
-            subject_id = picked.get("subject_id", "")
+            # Build run status table first and allow picking a row
+            runs = _load_runs(root)
+            run_map: Dict[str, List[Dict[str, Any]]] = {}
+            for r in runs:
+                sid = str(r.get("session_id", ""))
+                run_map.setdefault(sid, []).append(r)
+            rows_display: List[Dict[str, Any]] = []
+            for row in session_rows:
+                sid = str(row.get("session_id", ""))
+                subj = row.get("subject_id", "")
+                date = row.get("date", "")
+                run_list = run_map.get(sid, [])
+                last = run_list[-1] if run_list else None
+                script_used = os.path.basename(last.get("script", "")) if last else ""
+                ts = last.get("timestamp", "") if last else ""
+                status = last.get("status", "") if last else ""
+                out_path = last.get("output", "") if last else ""
+                nwb_exists = bool(out_path) and os.path.exists(out_path)
+                converted = bool(last) and status == "success" and nwb_exists
+                rows_display.append({
+                    "select": False,
+                    "subject": subj,
+                    "date": date,
+                    "session_id": sid,
+                    "converted": converted,
+                    "script": script_used,
+                    "run_time": ts,
+                    "status": status,
+                    "nwb_present": nwb_exists,
+                    "path": row.get("path", ""),
+                })
+            if rows_display:
+                df_runs = pd.DataFrame(rows_display)
+                # Provide selection via checkbox column
+                edited = st.data_editor(
+                    df_runs,
+                    hide_index=True,
+                    column_config={
+                        "select": st.column_config.CheckboxColumn("Use", help="Select exactly one session"),
+                        "converted": st.column_config.CheckboxColumn("Converted", disabled=True),
+                        "nwb_present": st.column_config.CheckboxColumn("NWB File", disabled=True),
+                    },
+                    disabled=["subject", "date", "session_id", "script", "run_time", "status", "nwb_present", "converted", "path"],
+                    height=min(500, 40 + 28 * len(rows_display)),
+                    key="runs_session_table",
+                )
+                # Determine selected row
+                selected_rows = edited[edited["select"]] if "select" in edited else edited.iloc[0:0]
+                if len(selected_rows) > 1:
+                    st.warning("Multiple sessions selected; using the first.")
+                picked_row = selected_rows.iloc[0] if len(selected_rows) >= 1 else None
+            else:
+                st.info("No sessions discovered. Ensure your directory structure or session file is set up.")
+                picked_row = None
+
+            session_id = str(picked_row.get("session_id", "")) if picked_row is not None else ""
+            subject_id = str(picked_row.get("subject", "")) if picked_row is not None else ""
+            selected_path = str(picked_row.get("path", "")) if picked_row is not None else ""
 
             # Defaults derived from selection
-            default_source = picked.get("path") or (os.path.join(root, session_id) if session_id else "")
+            default_source = selected_path or (os.path.join(root, session_id) if session_id else "")
             nwb_dir = os.path.join(root, "nwb_files")
             _ensure_dir(nwb_dir)
             base_name = "_".join([_sanitize_name(v) for v in (subject_id, session_id) if v]) or _sanitize_name(session_id)
@@ -2990,7 +3212,7 @@ def main() -> None:
                 overwrite = st.checkbox("Overwrite output if exists", value=False, key="run_overwrite")
             if st.button("Run conversion", type="primary"):
                 if not session_id:
-                    st.error("Please pick a session.")
+                    st.error("Please select a session in the table (check 'Use').")
                 elif not source or not output:
                     st.error("Provide source, output, and session ID.")
                 else:
@@ -3012,74 +3234,6 @@ def main() -> None:
                         st.success("Conversion finished successfully.")
                     else:
                         st.error(f"Conversion {status}. See log.")
-
-        # Session registry from template
-        st.subheader("Session registry")
-        # Show and allow changing the active template; persist in dataset.yaml
-        current_tmpl = tmpl_path or ""
-        tmpl_in = st.text_input("Template file path (.xlsx or .csv)", value=current_tmpl, placeholder="/path/to/*recordings*.xlsx or .csv")
-        if st.button("Save template path"):
-            try:
-                save_ds = ds_cfg if isinstance(ds_cfg, dict) else {}
-                save_ds["session_registry_template"] = tmpl_in
-                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
-                    yaml.safe_dump(save_ds, f)
-                st.success("Saved template path to dataset.yaml")
-                tmpl_path = tmpl_in
-            except Exception as e:
-                st.error(f"Failed to save template path: {e}")
-        if not tmpl_path:
-            st.info("No template spreadsheet found. Create one in 'Data description'.")
-        else:
-            try:
-                df_tmpl = pd.read_csv(tmpl_path) if tmpl_path.endswith(".csv") else pd.read_excel(tmpl_path)
-            except Exception as e:
-                st.error(f"Failed to read template: {e}")
-                df_tmpl = pd.DataFrame()
-            if session_rows:
-                runs = _load_runs(root)
-                run_map: Dict[str, List[Dict[str, Any]]] = {}
-                for r in runs:
-                    sid = str(r.get("session_id", ""))
-                    run_map.setdefault(sid, []).append(r)
-                rows: List[Dict[str, Any]] = []
-                for row in session_rows:
-                    sid = str(row.get("session_id", ""))
-                    subj = row.get("subject_id", "")
-                    date = row.get("date", "")
-                    run_list = run_map.get(sid, [])
-                    last = run_list[-1] if run_list else None
-                    script = os.path.basename(last.get("script", "")) if last else ""
-                    ts = last.get("timestamp", "") if last else ""
-                    status = last.get("status", "") if last else ""
-                    out_path = last.get("output", "") if last else ""
-                    nwb_exists = bool(out_path) and os.path.exists(out_path)
-                    converted = bool(last) and status == "success" and nwb_exists
-                    rows.append({
-                        "subject": subj,
-                        "date": date,
-                        "session_id": sid,
-                        "converted": converted,
-                        "script": script,
-                        "run_time": ts,
-                        "status": status,
-                        "nwb_present": nwb_exists,
-                    })
-                df_runs = pd.DataFrame(rows)
-                if df_runs.empty:
-                    st.caption("No sessions listed in template.")
-                else:
-                    def _color(r):
-                        color = "#d7ffd9" if r.get("converted") else "#ffe7e7"
-                        return [f"background-color: {color}"] * len(r)
-
-                    st.dataframe(
-                        df_runs.style.apply(_color, axis=1),
-                        width="stretch",
-                        hide_index=True,
-                    )
-            else:
-                st.info("Template missing 'session_id' column or no data.")
 
         return
         runs = _load_runs(root)
