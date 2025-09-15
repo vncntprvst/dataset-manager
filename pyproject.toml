@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "App to bundle data and metadata for U19 experiments' data conversion"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "CC-BY-4.0"}
+classifiers = [
+    "License :: OSI Approved :: Creative Commons Attribution 4.0 International License",
+    "Programming Language :: Python :: 3",
+]
 dependencies = [
     "streamlit>=1.36",
     "pandas>=2.0",
