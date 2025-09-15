@@ -1673,14 +1673,14 @@ def main() -> None:
     # Sidebar: primary actions
     with st.sidebar:
         st.header("Actions")
-        st.button("Project definition", use_container_width=True, on_click=_set_mode, args=("project",))
-        st.button("Data description", use_container_width=True, on_click=_set_mode, args=("template",))
-        st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
-        st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
-        st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
-        st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
+        st.button("Project definition", width="stretch", on_click=_set_mode, args=("project",))
+        st.button("Data description", width="stretch", on_click=_set_mode, args=("template",))
+        st.button("Create conversion scripts", width="stretch", on_click=_set_mode, args=("scripts",))
+        st.button("Conversion runs", width="stretch", on_click=_set_mode, args=("runs",))
+        st.button("NWB Validation", width="stretch", on_click=_set_mode, args=("validate",))
+        st.button("Neurosift Viewer", width="stretch", on_click=_set_mode, args=("neurosift",))
         st.divider()
-        if st.button("Quit", type="secondary", use_container_width=True):
+        if st.button("Quit", type="secondary", width="stretch"):
             os._exit(0)
 
     # Default to project page on first load
@@ -1926,7 +1926,7 @@ def main() -> None:
                         "Category": st.column_config.TextColumn("Category", disabled=True, width="small"),
                         "Description": st.column_config.TextColumn("Description", disabled=True, width="large"),
                     },
-                    use_container_width=True,
+                    width="stretch",
                 )
                 try:
                     user_fields = uf_edit["Field"].tolist()
@@ -1954,7 +1954,7 @@ def main() -> None:
                     style_df(af_df),
                     hide_index=True,
                     column_config=af_col_cfg,
-                    use_container_width=True,
+                    width="stretch",
                 )
                 try:
                     auto_fields = af_edit["Field"].tolist()
@@ -2434,7 +2434,7 @@ def main() -> None:
 
                     st.dataframe(
                         df_runs.style.apply(_color, axis=1),
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                     )
             else:
