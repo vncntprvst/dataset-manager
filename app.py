@@ -37,6 +37,128 @@ def _set_mode(new_mode: str):
     st.session_state["mode"] = new_mode
 
 
+# ------------------------------
+# Dataset repository catalog and helpers
+# ------------------------------
+
+def _repository_catalog() -> Dict[str, Dict[str, Any]]:
+    """Static catalog of supported data repositories with fields and help.
+
+    Returns a dict keyed by display name. Each entry contains:
+    - site: Main website URL
+    - description: One-line description
+    - howto: Markdown string with account + API/token instructions
+    - config_fields: list of field specs: {key,label,type}
+    - expected_metadata_fields: list of metadata field names expected when publishing
+    """
+    return {
+        "DANDI Archive": {
+            "site": "https://dandiarchive.org",
+            "description": "Archive for neurophysiology data with NWB focus.",
+            "howto": (
+                "Prerequisites\n\n"
+                "- Register for DANDI and obtain an API key.\n"
+                "- Production: https://dandiarchive.org – Sandbox: https://sandbox.dandiarchive.org (keys/logins differ).\n\n"
+                "Creating a new Dandiset\n\n"
+                "- Log in and click NEW DANDISET (top-right).\n"
+                "- Fill in title and description; an identifier is assigned.\n"
+                "- Once the draft is created, you can edit the metadata (License, Keywords ...).\n\n"
+                "Docs: https://docs.dandiarchive.org/user-guide-sharing/creating-dandiset/"
+            ),
+            "config_fields": [
+                {"key": "api_key", "label": "DANDI API key", "type": "password"},
+                {"key": "dandiset_id", "label": "Dandiset ID (if exists)", "type": "text"},
+                {"key": "server", "label": "Server (production/sandbox URL)", "type": "text"},
+            ],
+            "expected_metadata_fields": [
+                "license", "keywords", "contributor", "affiliation", "funding", "citation",
+            ],
+        },
+        "Dryad": {
+            "site": "https://datadryad.org",
+            "description": "General-purpose data repository for research data.",
+            "howto": (
+                "- Create a Dryad account.\n"
+                "- Obtain an API token if using API-based uploads.\n"
+                "Docs: https://datadryad.org/stash/help"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Dryad API token", "type": "password"},
+                {"key": "doi", "label": "Dataset DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Dataverse": {
+            "site": "https://dataverse.org",
+            "description": "Open-source data repository platform used by many institutions.",
+            "howto": (
+                "- Create an account on a Dataverse instance (typically Harvard's - https://dataverse.harvard.edu/).\n"
+                "- Generate a personal API token (Account → API Token).\n"
+                "Docs: https://guides.dataverse.org/en/latest/user/account.html#api-tokens"
+            ),
+            "config_fields": [
+                {"key": "base_url", "label": "Dataverse base URL", "type": "text"},
+                {"key": "api_token", "label": "API token", "type": "password"},
+                {"key": "doi", "label": "Dataset DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Zenodo": {
+            "site": "https://zenodo.org",
+            "description": "General-purpose open research repository by CERN.",
+            "howto": (
+                "- Log in (GitHub/ORCID/Google) and create a personal access token.\n"
+                "- Sandbox: https://sandbox.zenodo.org for testing.\n"
+                "Docs: https://developers.zenodo.org/#api-access"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Zenodo API token", "type": "password"},
+                {"key": "doi", "label": "DOI (if exists)", "type": "text"},
+                {"key": "server", "label": "Server (production/sandbox URL)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "Figshare": {
+            "site": "https://figshare.com",
+            "description": "Repository for papers, datasets, and figures.",
+            "howto": (
+                "- Create a Figshare account.\n"
+                "- Generate a personal token (Applications → Create personal token).\n"
+                "Docs: https://docs.figshare.com/"
+            ),
+            "config_fields": [
+                {"key": "api_token", "label": "Figshare API token", "type": "password"},
+                {"key": "article_id", "label": "Article ID / DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+        "OSF": {
+            "site": "https://osf.io",
+            "description": "Open Science Framework project and data hosting.",
+            "howto": (
+                "- Create an OSF account.\n"
+                "- Generate a personal access token (Settings → Personal access tokens).\n"
+                "Docs: https://developer.osf.io/"
+            ),
+            "config_fields": [
+                {"key": "access_token", "label": "OSF access token", "type": "password"},
+                {"key": "project_id", "label": "Project ID / DOI (if exists)", "type": "text"},
+            ],
+            "expected_metadata_fields": ["license", "keywords", "contributor", "affiliation", "funding"],
+        },
+    }
+
+
+def _repo_expected_fields(ds: Dict[str, Any]) -> List[str]:
+    repo = (ds or {}).get("repository", {})
+    name = repo.get("name")
+    if not name:
+        return []
+    cat = _repository_catalog()
+    entry = cat.get(name, {})
+    return list(entry.get("expected_metadata_fields", []))
+
+
 def _ecephys_acq_types() -> List[str]:
     """Best-effort retrieval of Extracellular acquisition types from NeuroConv.
 
@@ -359,6 +481,11 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
         "Miniscope": "MiniscopeImagingInterface",
         "HDF5": "HDF5ImagingInterface",
     }
+    behavior_map = {
+        "Video": "VideoInterface",
+        "Audio": "AudioInterface",
+        "MedPC": "MedPCInterface",
+    }
 
     # Determine modality blocks to include
     include_ecephys = any(et.startswith("Electrophysiology – Extracellular") for et in exp_types)
@@ -366,11 +493,127 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
     include_ophys = any(et == "Optical Physiology" for et in exp_types)
     include_behavior = any(et == "Behavior and physiological measurements" for et in exp_types)
 
+    e_labels = acq_types.get("Electrophysiology – Extracellular", []) or ["SpikeGLX"]
+    i_labels = acq_types.get("Electrophysiology – Intracellular", []) or ["Axon Instruments"]
+    o_labels = acq_types.get("Optical Physiology", []) or ["Tiff"]
+    b_labels = acq_types.get("Behavior and physiological measurements", []) or ["Video"]
+
+    ecephys_patterns = {
+        "SpikeGLX": ["*.ap.meta", "*.bin"],
+        "OpenEphys": ["structure.oebin"],
+        "Blackrock": ["*.ns*", "*.nev"],
+        "Intan": ["*.rhd", "*.rhs"],
+        "Neuralynx": ["*.ncs", "*.nse", "*.nev"],
+        "Plexon": ["*.pl2", "*.plx"],
+        "TDT": ["*.tsq", "*.tev"],
+        "EDF": ["*.edf"],
+        "White Matter": ["*.xml"],
+    }
+    icephys_patterns = {
+        "Axon Instruments": ["*.abf"],
+        "HEKA": ["*.dat", "*.h5"],
+    }
+    ophys_patterns = {
+        "TIFF": ["*.tif", "*.tiff"],
+        "Tiff": ["*.tif", "*.tiff"],
+        "Bruker": ["*.tif", "*.tiff"],
+        "ScanImage": ["*.tif", "*.tiff"],
+        "Miniscope": ["*.avi", "*.mp4", "*.hdf5"],
+        "HDF5": ["*.h5", "*.hdf5"],
+    }
+    behavior_patterns = {
+        "Video": ["*.mp4", "*.avi", "*.mov", "*.mkv"],
+        "Audio": ["*.wav", "*.flac", "*.mp3"],
+        "MedPC": ["*.txt", "*.medpc", "*.csv"],
+    }
+
+    detect_lines: List[str] = []
+    detect_lines.append("        source_root = pathlib.Path(args.source)")
+    detect_lines.append("        source_data: Dict[str, Any] = {}")
+    detect_lines.append("")
+    detect_lines.append("        def _find_first(patterns):")
+    detect_lines.append("            for pat in patterns:")
+    detect_lines.append("                hits = list(source_root.rglob(pat))")
+    detect_lines.append("                if hits:")
+    detect_lines.append("                    return hits")
+    detect_lines.append("            return []")
+    detect_lines.append("")
+
+    if include_ecephys:
+        for lab in e_labels:
+            key = f"ecephys__{_sanitize_name(lab)}"
+            patterns = repr(ecephys_patterns.get(lab, ['*']))
+            detect_lines.extend([
+                f"        if '{key}' in ProjectConverter.data_interface_classes:",
+                f"            hits = _find_first({patterns})",
+                "            if hits:",
+                f"                source_data['{key}'] = dict(folder_path=str(hits[0].parent))",
+                "",
+            ])
+
+    if include_icephys:
+        for lab in i_labels:
+            key = f"icephys__{_sanitize_name(lab)}"
+            patterns = repr(icephys_patterns.get(lab, ['*']))
+            detect_lines.extend([
+                f"        if '{key}' in ProjectConverter.data_interface_classes:",
+                f"            hits = _find_first({patterns})",
+                "            if hits:",
+                f"                source_data['{key}'] = dict(file_paths=[str(h) for h in hits])",
+                "",
+            ])
+
+    if include_ophys:
+        for lab in o_labels:
+            key = f"ophys__{_sanitize_name(lab)}"
+            patterns = repr(ophys_patterns.get(lab, ['*']))
+            detect_lines.extend([
+                f"        if '{key}' in ProjectConverter.data_interface_classes:",
+                f"            hits = _find_first({patterns})",
+                "            if hits:",
+                f"                source_data['{key}'] = dict(file_paths=[str(h) for h in hits])",
+                "",
+            ])
+
+    if include_behavior:
+        for lab in b_labels:
+            key = f"behavior__{_sanitize_name(lab)}"
+            patterns = repr(behavior_patterns.get(lab, ['*']))
+            if lab == "MedPC":
+                detect_lines.extend([
+                    f"        if '{key}' in ProjectConverter.data_interface_classes:",
+                    f"            hits = _find_first({patterns})",
+                    "            if hits:",
+                    f"                source_data['{key}'] = dict(",
+                    "                    file_path=str(hits[0]),",
+                    "                    session_conditions={},  # TODO: fill in MedPC session conditions",
+                    "                    start_variable='Start',  # TODO: adjust",
+                    "                    metadata_medpc_name_to_info_dict={},",
+                    "                )",
+                    "",
+                ])
+            else:
+                detect_lines.extend([
+                    f"        if '{key}' in ProjectConverter.data_interface_classes:",
+                    f"            hits = _find_first({patterns})",
+                    "            if hits:",
+                    f"                source_data['{key}'] = dict(file_paths=[str(h) for h in hits])",
+                    "",
+                ])
+
+    detect_block = "\n".join(detect_lines)
+
     lines: List[str] = []
     lines.append("#!/usr/bin/env python")
     lines.append("# Auto-generated by Dataset Manager – NeuroConv-based conversion skeleton")
-    lines.append("import os, argparse, datetime, json")
+    lines.append("import os, argparse, datetime, json, pathlib")
     lines.append("from typing import Dict, Any")
+    lines.append("import yaml")
+    lines.append("import pandas as pd")
+    lines.append("try:")
+    lines.append("    import brainstem_python_api_tools as bs  # type: ignore")
+    lines.append("except Exception:")
+    lines.append("    bs = None")
     lines.append("\n# NeuroConv imports (install: pip install neuroconv)")
     lines.append("from neuroconv import NWBConverter")
     if include_ecephys:
@@ -380,7 +623,10 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
     if include_ophys:
         lines.append("from neuroconv.datainterfaces import ophys as ncv_ophys")
     if include_behavior:
-        lines.append("from neuroconv.datainterfaces import behavior as ncv_behavior")
+        for lab in b_labels:
+            submod = lab.lower()
+            mod_var = f"ncv_behavior_{_sanitize_name(lab).lower()}"
+            lines.append(f"from neuroconv.datainterfaces.behavior import {submod} as {mod_var}")
     lines.append("")
 
     # Build converter class
@@ -389,32 +635,34 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
 
     # Add interface class references per modality
     if include_ecephys:
-        labels = acq_types.get("Electrophysiology – Extracellular", []) or ["SpikeGLX"]
-        for lab in labels:
+        for lab in e_labels:
             cls = ecephys_map.get(lab, None)
             if cls:
                 lines.append(f"    data_interface_classes['ecephys__{_sanitize_name(lab)}'] = getattr(ncv_ecephys, '{cls}', None)")
             else:
                 lines.append(f"    # TODO: map '{lab}' to a NeuroConv ecephys interface")
     if include_icephys:
-        labels = acq_types.get("Electrophysiology – Intracellular", []) or ["Axon Instruments"]
-        for lab in labels:
+        for lab in i_labels:
             cls = icephys_map.get(lab, None)
             if cls:
                 lines.append(f"    data_interface_classes['icephys__{_sanitize_name(lab)}'] = getattr(ncv_icephys, '{cls}', None)")
             else:
                 lines.append(f"    # TODO: map '{lab}' to a NeuroConv icephys interface")
     if include_ophys:
-        labels = acq_types.get("Optical Physiology", []) or ["Tiff"]
-        for lab in labels:
+        for lab in o_labels:
             cls = ophys_map.get(lab, None)
             if cls:
                 lines.append(f"    data_interface_classes['ophys__{_sanitize_name(lab)}'] = getattr(ncv_ophys, '{cls}', None)")
             else:
                 lines.append(f"    # TODO: map '{lab}' to a NeuroConv ophys interface")
     if include_behavior:
-        # Leave as TODO since behavior inputs vary widely
-        lines.append("    # TODO: add behavior interfaces (e.g., VideoInterface, AudioInterface) if applicable")
+        for lab in b_labels:
+            cls = behavior_map.get(lab, None)
+            mod_var = f"ncv_behavior_{_sanitize_name(lab).lower()}"
+            if cls:
+                lines.append(f"    data_interface_classes['behavior__{_sanitize_name(lab)}'] = getattr({mod_var}, '{cls}', None)")
+            else:
+                lines.append(f"    # TODO: map '{lab}' to a NeuroConv behavior interface")
 
     lines.append("")
     lines.append(dedent(f"""
@@ -426,12 +674,41 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
         parser.add_argument('--overwrite', action='store_true', help='Overwrite existing output file')
         args = parser.parse_args()
 
-        # Assemble source_data mapping for each interface; modify globs/paths as needed.
-        source_data: Dict[str, Any] = {{}}
+        root = pathlib.Path(__file__).resolve().parents[1]
 
-        # Example entries (uncomment and adjust):
-        # source_data['ecephys__SpikeGLX'] = dict(folder_path=os.path.join(args.source, 'raw_ephys_data'))
-        # source_data['ophys__Tiff'] = dict(file_paths=[...])
+        # Load project description from dataset.yaml
+        project_cfg = {{}}
+        ds_path = root / 'dataset.yaml'
+        if ds_path.exists():
+            with ds_path.open('r', encoding='utf-8') as f:
+                project_cfg = yaml.safe_load(f) or {{}}
+
+        # Load template file (CSV or Excel) for per-session metadata
+        template_df = pd.DataFrame()
+        for ext in ('csv', 'xlsx', 'xls'):
+            matches = list(root.glob(f"*recordings*.{{ext}}"))
+            if matches:
+                tmpl = matches[0]
+                template_df = pd.read_csv(tmpl) if ext == 'csv' else pd.read_excel(tmpl)
+                break
+        session_row = {{}}
+        if not template_df.empty and 'session_id' in template_df.columns:
+            sel = template_df[template_df['session_id'].astype(str) == args.session_id]
+            if not sel.empty:
+                session_row = sel.iloc[0].to_dict()
+
+        # Optionally fetch metadata from brainSTEM if API key/config available
+        brainstem_vals = {{}}
+        cfg_path = root / 'brainstem_config.yaml'
+        if bs and cfg_path.exists():
+            try:
+                with cfg_path.open('r', encoding='utf-8') as f:
+                    bs_cfg = yaml.safe_load(f) or {{}}
+                # TODO: instantiate brainSTEM client and populate brainstem_vals
+            except Exception:
+                pass
+
+{detect_block}
 
         converter = ProjectConverter(source_data=source_data)
 
@@ -439,14 +716,23 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
         metadata = converter.get_metadata()
         metadata.setdefault('NWBFile', {{}})
         metadata['NWBFile'].update({{
-            'session_description': 'Converted using NeuroConv',
             'session_id': args.session_id,
             'session_start_time': datetime.datetime.now().astimezone(),
             'identifier': f"{_sanitize_name(project)}__{{args.session_id}}",
-            'experimenter': ['{experimenter}'],
-            'institution': '{cfg.get('institution', '')}',
-            'lab': '{cfg.get('lab', '')}',
+            'experimenter': [project_cfg.get('experimenter', '{experimenter}')],
+            'institution': project_cfg.get('institution', ''),
+            'lab': project_cfg.get('lab', ''),
         }})
+
+        # Merge template and brainSTEM auto-filled values
+        for key, val in session_row.items():
+            if key not in metadata['NWBFile'] or not metadata['NWBFile'][key]:
+                metadata['NWBFile'][key] = val
+        for key, val in brainstem_vals.items():
+            if key not in metadata['NWBFile'] or not metadata['NWBFile'][key]:
+                metadata['NWBFile'][key] = val
+        if not metadata['NWBFile'].get('session_description'):
+            metadata['NWBFile']['session_description'] = f'Session {{args.session_id}}'
 
         converter.run_conversion(
             metadata=metadata,
@@ -1509,15 +1795,15 @@ def main() -> None:
     # Sidebar: primary actions
     with st.sidebar:
         st.header("Actions")
-        st.button("Project definition", use_container_width=True, on_click=_set_mode, args=("project",))
-        st.button("Data description", use_container_width=True, on_click=_set_mode, args=("template",))
-        st.button("Create conversion scripts", use_container_width=True, on_click=_set_mode, args=("scripts",))
-        st.button("Conversion runs", use_container_width=True, on_click=_set_mode, args=("runs",))
-        st.button("NWB Validation", use_container_width=True, on_click=_set_mode, args=("validate",))
-        # Temporarily hide Neurosift until upstream fix is available
-        # st.button("Neurosift Viewer", use_container_width=True, on_click=_set_mode, args=("neurosift",))
+        st.button("Project definition", width="stretch", on_click=_set_mode, args=("project",))
+        st.button("Dataset repository", width="stretch", on_click=_set_mode, args=("repo",))
+        st.button("Data description", width="stretch", on_click=_set_mode, args=("template",))
+        st.button("Create conversion scripts", width="stretch", on_click=_set_mode, args=("scripts",))
+        st.button("Conversion runs", width="stretch", on_click=_set_mode, args=("runs",))
+        st.button("NWB Validation", width="stretch", on_click=_set_mode, args=("validate",))
+        st.button("Neurosift Viewer", width="stretch", on_click=_set_mode, args=("neurosift",))
         st.divider()
-        if st.button("Quit", type="secondary", use_container_width=True):
+        if st.button("Quit", type="secondary", width="stretch"):
             os._exit(0)
 
     # Default to project page on first load
@@ -1576,11 +1862,229 @@ def main() -> None:
                     if not data["project_name"] or not data["experimenter"]:
                         st.error("Project Name and Experimenter are required.")
                     else:
+                        # Preserve repository settings and other keys not managed by Project form
+                        try:
+                            with open(dataset_path, "r", encoding="utf-8") as f:
+                                existing_all = yaml.safe_load(f) or {}
+                        except Exception:
+                            existing_all = {}
+                        if isinstance(existing_all, dict) and "repository" in existing_all:
+                            data["repository"] = existing_all.get("repository")
                         with open(dataset_path, "w", encoding="utf-8") as f:
                             yaml.safe_dump(data, f)
                         st.success(f"Updated {dataset_path}")
             else:
                 st.info(f"No dataset.yaml found in {edit_root}.")
+        return
+
+    if mode == "repo":
+        st.header("Dataset repository")
+        st.caption("Select where you plan to publish, and provide credentials and required metadata.")
+
+        root = _project_root()
+        ds = _load_dataset_yaml(root)
+        repo_cfg = ds.get("repository", {}) if isinstance(ds, dict) else {}
+
+        catalog = _repository_catalog()
+        options = list(catalog.keys())
+        current = repo_cfg.get("name") if isinstance(repo_cfg, dict) else None
+        try:
+            idx = options.index(current) if current in options else None
+        except Exception:
+            idx = None
+
+        sel = st.selectbox("Select a repository", options=options, index=idx if idx is not None else None, placeholder="Choose.")
+        if not sel:
+            st.info("Choose a repository to see details and settings.")
+            return
+
+        entry = catalog.get(sel, {})
+        with st.expander(f"About {sel}", expanded=False):
+            st.write(entry.get("description", ""))
+            site = entry.get("site")
+            if site:
+                st.markdown(f"Website: [{site}]({site})")
+
+        howto = entry.get("howto")
+        if howto:
+            st.info(howto)
+
+        st.subheader("Repository settings")
+        cfg = dict(repo_cfg.get("config", {})) if isinstance(repo_cfg, dict) else {}
+        new_cfg: Dict[str, Any] = {}
+        for f in entry.get("config_fields", []):
+            key = str(f.get("key"))
+            label = str(f.get("label", key))
+            ftype = str(f.get("type", "text"))
+            default_val = cfg.get(key, "")
+            wkey = f"repo_cfg_{sel}_{key}"
+            if wkey not in st.session_state:
+                st.session_state[wkey] = default_val
+            if ftype == "password":
+                st.text_input(label, key=wkey, type="password")
+            else:
+                st.text_input(label, key=wkey)
+            new_cfg[key] = st.session_state.get(wkey, "")
+
+        st.subheader("Repository metadata")
+        # Apply any prefill captured from a previous fetch before instantiating widgets
+        _prefill_key = f"_repo_prefill_meta_{sel}"
+        _prefill = st.session_state.pop(_prefill_key, None)
+        if isinstance(_prefill, dict):
+            for mk, mv in _prefill.items():
+                st.session_state[f"repo_meta_{sel}_{mk}"] = mv
+
+        meta = dict(repo_cfg.get("metadata", {})) if isinstance(repo_cfg, dict) else {}
+        new_meta: Dict[str, Any] = {}
+        for mkey in entry.get("expected_metadata_fields", []):
+            label = mkey.capitalize()
+            placeholder = "Comma-separated" if mkey == "keywords" else ""
+            wkey = f"repo_meta_{sel}_{mkey}"
+            if wkey not in st.session_state:
+                st.session_state[wkey] = meta.get(mkey, "")
+            if mkey in ("citation",):
+                st.text_area(label, key=wkey)
+            else:
+                st.text_input(label, key=wkey, placeholder=placeholder)
+            new_meta[mkey] = st.session_state.get(wkey, "")
+
+        # Fetch metadata from repository APIs (DANDI supported)
+        if sel == "DANDI Archive":
+            if st.button("Fetch Dandiset metadata"):
+                api_key = new_cfg.get("api_key") or st.session_state.get(f"repo_cfg_{sel}_api_key", "")
+                dandiset_id = new_cfg.get("dandiset_id") or st.session_state.get(f"repo_cfg_{sel}_dandiset_id", "")
+                server = new_cfg.get("server") or st.session_state.get(f"repo_cfg_{sel}_server", "")
+                if not dandiset_id:
+                    st.error("Please enter a Dandiset ID in Repository settings.")
+                else:
+                    try:
+                        import requests  # type: ignore
+                        base = "https://api.dandiarchive.org"
+                        s = (server or "").lower()
+                        if s:
+                            if "api.sandbox" in s or "sandbox" in s:
+                                base = "https://api.sandbox.dandiarchive.org"
+                            elif s.startswith("http") and "api.dandiarchive" in s:
+                                base = s.rstrip("/")
+                        headers = {}
+                        if api_key:
+                            headers["Authorization"] = f"token {api_key}"
+
+                        # Try draft first, then fallback to latest published
+                        md_obj = None
+                        url = f"{base}/api/dandisets/{dandiset_id}/versions/draft"
+                        r = requests.get(url, headers=headers, timeout=20)
+                        if r.status_code == 200:
+                            md_obj = r.json()
+                        else:
+                            # List versions and pick latest published
+                            r2 = requests.get(f"{base}/api/dandisets/{dandiset_id}/versions", headers=headers, timeout=20)
+                            r2.raise_for_status()
+                            versions = r2.json() or []
+                            pub = None
+                            for v in versions:
+                                if str(v.get("status", "")).lower() == "published":
+                                    pub = v
+                            if pub and pub.get("version"):
+                                vurl = f"{base}/api/dandisets/{dandiset_id}/versions/{pub['version']}"
+                                r3 = requests.get(vurl, headers=headers, timeout=20)
+                                r3.raise_for_status()
+                                md_obj = r3.json()
+                        if not md_obj:
+                            st.error("Failed to retrieve Dandiset metadata. Check Dandiset ID, server, and permissions.")
+                        else:
+                            meta_src = md_obj.get("metadata") or md_obj
+                            # Map to our fields
+                            fetched: Dict[str, str] = {}
+                            # license
+                            lic = meta_src.get("license")
+                            if isinstance(lic, list):
+                                fetched["license"] = ", ".join(str(x.get("name") if isinstance(x, dict) else x) for x in lic)
+                            elif isinstance(lic, dict):
+                                fetched["license"] = str(lic.get("name") or lic.get("spdx") or lic)
+                            elif lic:
+                                fetched["license"] = str(lic)
+                            # keywords
+                            kws = meta_src.get("keywords")
+                            if isinstance(kws, list):
+                                fetched["keywords"] = ", ".join(map(str, kws))
+                            elif isinstance(kws, str):
+                                fetched["keywords"] = kws
+                            # contributors -> contributor names
+                            contrib = meta_src.get("contributor") or meta_src.get("contributors")
+                            if isinstance(contrib, list):
+                                names = []
+                                affs: Set[str] = set()
+                                for c in contrib:
+                                    if isinstance(c, dict):
+                                        n = c.get("name") or c.get("fullname") or c.get("email")
+                                        if n:
+                                            names.append(str(n))
+                                        a = c.get("affiliation")
+                                        if isinstance(a, list):
+                                            for ai in a:
+                                                if isinstance(ai, dict):
+                                                    nm = ai.get("name")
+                                                    if nm:
+                                                        affs.add(str(nm))
+                                                elif isinstance(ai, str):
+                                                    affs.add(ai)
+                                        elif isinstance(a, dict):
+                                            nm = a.get("name")
+                                            if nm:
+                                                affs.add(str(nm))
+                                        elif isinstance(a, str):
+                                            affs.add(a)
+                                if names:
+                                    fetched["contributor"] = "; ".join(names)
+                                if affs:
+                                    fetched["affiliation"] = "; ".join(sorted(affs))
+                            # funding
+                            fund = meta_src.get("funding")
+                            if isinstance(fund, list):
+                                fetched["funding"] = "; ".join(map(str, fund))
+                            elif isinstance(fund, str):
+                                fetched["funding"] = fund
+                            # citation
+                            cit = meta_src.get("citation") or meta_src.get("howToCite")
+                            if cit:
+                                fetched["citation"] = str(cit)
+
+                            # Queue prefill for the next run to avoid modifying widget state post-instantiation
+                            st.session_state[_prefill_key] = fetched
+                            # Save into dataset.yaml
+                            ds = ds if isinstance(ds, dict) else {}
+                            ds.setdefault("repository", {})
+                            ds["repository"].setdefault("metadata", {})
+                            ds["repository"]["metadata"].update(fetched)
+                            try:
+                                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                                    yaml.safe_dump(ds, f)
+                                st.success("Fetched Dandiset metadata and saved to dataset.yaml")
+                                try:
+                                    st.rerun()  # Streamlit >= 1.30
+                                except Exception:
+                                    st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"Fetched but failed to save metadata: {e}")
+                    except Exception as e:
+                        st.error(f"Failed to fetch from DANDI API: {e}")
+
+        if st.button("Save repository settings", type="primary"):
+            ds = ds if isinstance(ds, dict) else {}
+            ds.setdefault("project_name", ds.get("project_name", ""))
+            ds["repository"] = {
+                "name": sel,
+                "config": new_cfg,
+                "metadata": new_meta,
+            }
+            try:
+                os.makedirs(root, exist_ok=True)
+                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                    yaml.safe_dump(ds, f)
+                st.success("Saved repository settings to dataset.yaml")
+            except Exception as e:
+                st.error(f"Failed to save repository settings: {e}")
         return
 
     if mode == "template":
@@ -1606,7 +2110,14 @@ def main() -> None:
                     st.experimental_rerun()
 
             # Optional: fetch metadata from brainSTEM.org
-            st.checkbox("Fetch notes/metadata from brainSTEM.org", value=False, key="use_brainstem")
+            # Persist preference across page switches by separating widget state from stored value
+            _use_bs_pref = st.session_state.get("use_brainstem", False)
+            _use_bs_checked = st.checkbox(
+                "Fetch notes/metadata from brainSTEM.org",
+                value=_use_bs_pref,
+                key="use_brainstem_widget",
+            )
+            st.session_state["use_brainstem"] = _use_bs_checked
             if st.session_state.get("use_brainstem"):
                 root = _project_root()
                 cfg_path = os.path.join(root, "brainstem_config.yaml")
@@ -1706,6 +2217,21 @@ def main() -> None:
                         auto_fields.append(f)
                         auto_set.add(f)
 
+            # Ensure repository-required fields are auto-populated (not in the XLSX template)
+            try:
+                ds_for_repo = _load_dataset_yaml(_project_root())
+            except Exception:
+                ds_for_repo = {}
+            repo_auto = set(_repo_expected_fields(ds_for_repo))
+            if repo_auto:
+                must_auto = [f for f in fields if f in repo_auto]
+                user_fields = [f for f in user_fields if f not in must_auto]
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
+
             st.subheader("Columns Preview")
             desc_map = get_field_descriptions()
             brainstem_vals = st.session_state.get("brainstem_fields", {})
@@ -1756,7 +2282,7 @@ def main() -> None:
                         "Category": st.column_config.TextColumn("Category", disabled=True, width="small"),
                         "Description": st.column_config.TextColumn("Description", disabled=True, width="large"),
                     },
-                    use_container_width=True,
+                    width="stretch",
                 )
                 try:
                     user_fields = uf_edit["Field"].tolist()
@@ -1784,7 +2310,7 @@ def main() -> None:
                     style_df(af_df),
                     hide_index=True,
                     column_config=af_col_cfg,
-                    use_container_width=True,
+                    width="stretch",
                 )
                 try:
                     auto_fields = af_edit["Field"].tolist()
@@ -1934,6 +2460,20 @@ def main() -> None:
             # Use brainSTEM-aware field splitting if brainSTEM is enabled  
             use_brainstem = st.session_state.get("use_brainstem", False)
             user_fields, auto_fields = split_user_vs_auto(columns, use_brainstem=use_brainstem)
+            # Move repository-required fields to auto
+            try:
+                ds_for_repo = _load_dataset_yaml(_project_root())
+            except Exception:
+                ds_for_repo = {}
+            repo_auto = set(_repo_expected_fields(ds_for_repo))
+            if repo_auto:
+                must_auto = [f for f in columns if f in repo_auto]
+                user_fields = [f for f in user_fields if f not in must_auto]
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("User-provided fields")
@@ -2163,6 +2703,9 @@ def main() -> None:
         return
 
     if mode == "runs":
+        import glob
+        import pandas as pd
+
         st.header("Conversion runs")
         st.caption("Track, run, and manage conversions for the current project.")
         root = _project_root()
@@ -2197,6 +2740,7 @@ def main() -> None:
                         "session_id": session_id,
                         "timestamp": ts,
                         "script": script_path,
+                        "output": output,
                         "status": status,
                         "log": log_path,
                     })
@@ -2204,6 +2748,67 @@ def main() -> None:
                         st.success("Conversion finished successfully.")
                     else:
                         st.error(f"Conversion {status}. See log.")
+
+        # Session registry from template
+        st.subheader("Session registry")
+        tmpl_path = None
+        for ext in ("csv", "xlsx", "xls"):
+            matches = glob.glob(os.path.join(root, f"*recordings*.{ext}"))
+            if matches:
+                tmpl_path = matches[0]
+                break
+        if tmpl_path is None:
+            st.info("No template spreadsheet found. Create one in 'Data description'.")
+        else:
+            try:
+                df_tmpl = pd.read_csv(tmpl_path) if tmpl_path.endswith(".csv") else pd.read_excel(tmpl_path)
+            except Exception as e:
+                st.error(f"Failed to read template: {e}")
+                df_tmpl = pd.DataFrame()
+            if not df_tmpl.empty and "session_id" in df_tmpl.columns:
+                runs = _load_runs(root)
+                run_map: Dict[str, List[Dict[str, Any]]] = {}
+                for r in runs:
+                    sid = str(r.get("session_id", ""))
+                    run_map.setdefault(sid, []).append(r)
+                rows: List[Dict[str, Any]] = []
+                for _, row in df_tmpl.iterrows():
+                    sid = str(row.get("session_id", ""))
+                    subj = row.get("subject_id") or row.get("subject") or ""
+                    date = row.get("session_start_time") or row.get("date") or row.get("session_date") or ""
+                    run_list = run_map.get(sid, [])
+                    last = run_list[-1] if run_list else None
+                    script = os.path.basename(last.get("script", "")) if last else ""
+                    ts = last.get("timestamp", "") if last else ""
+                    status = last.get("status", "") if last else ""
+                    out_path = last.get("output", "") if last else ""
+                    nwb_exists = bool(out_path) and os.path.exists(out_path)
+                    converted = bool(last) and status == "success" and nwb_exists
+                    rows.append({
+                        "subject": subj,
+                        "date": date,
+                        "session_id": sid,
+                        "converted": converted,
+                        "script": script,
+                        "run_time": ts,
+                        "status": status,
+                        "nwb_present": nwb_exists,
+                    })
+                df_runs = pd.DataFrame(rows)
+                if df_runs.empty:
+                    st.caption("No sessions listed in template.")
+                else:
+                    def _color(r):
+                        color = "#d7ffd9" if r.get("converted") else "#ffe7e7"
+                        return [f"background-color: {color}"] * len(r)
+
+                    st.dataframe(
+                        df_runs.style.apply(_color, axis=1),
+                        width="stretch",
+                        hide_index=True,
+                    )
+            else:
+                st.info("Template missing 'session_id' column or no data.")
 
         st.subheader("Previous runs")
         runs = _load_runs(root)
