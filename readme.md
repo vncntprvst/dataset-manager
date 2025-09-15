@@ -9,8 +9,6 @@
 ![Last Commit](https://img.shields.io/github/last-commit/vncntprvst/dataset-manager.svg)
 ![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-ff4b4b.svg)
 
-<sup>Version reflects the value in `pyproject.toml`. Update there first, then adjust the badge.</sup>
-
 A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB / DANDI archive submission requirements.
 
 This project was created as part of the Team BRAIN Circuit Program (U19) NS137920: _High- and low-level computations for coordination of orofacial motor actions_
