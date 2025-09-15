@@ -414,11 +414,117 @@ def _dedupe_fields(fields: List[str]) -> List[str]:
     return out
 
 
+def _placeholder_to_regex(placeholder: str) -> str:
+    """Convert a placeholder string like '<SUBJECT_ID>_<SESSION_ID>' to a regex pattern.
+
+    Anchors with ^...$ so it must match the whole name. Supports common date tokens.
+    """
+    s = str(placeholder).strip()
+    if not s:
+        return r"^.+$"
+
+    def repl(m: re.Match[str]) -> str:
+        tok = m.group(1).upper()
+        # Date formats
+        if tok == "YYYY_MM_DD":
+            return r"20\d{2}_\d{2}_\d{2}"
+        if tok == "YYYY-MM-DD":
+            return r"20\d{2}-\d{2}-\d{2}"
+        if tok == "YYYYMMDD":
+            return r"20\d{6}"
+        if tok == "YYMMDD":
+            return r"\d{6}"
+        if tok in {"SUBJECT_ID", "SESSION_ID", "CUSTOM"} or tok.startswith("LEVEL_"):
+            return r"[A-Za-z0-9._-]+"
+        # Generic: accept one path segment
+        return r"[^/\\]+"
+
+    # Replace all <...> tokens
+    body = re.sub(r"<([^>]+)>", repl, s)
+    return f"^{body}$"
+
+
+def _name_matches_placeholder(placeholder: str, name: str) -> bool:
+    try:
+        pat = _placeholder_to_regex(placeholder)
+        return re.fullmatch(pat, name) is not None
+    except Exception:
+        return bool(name)
+
+
 def _compose_script_name(project_name: str, experimenter: str, modalities: List[str]) -> str:
     # Keep filenames short: avoid embedding modality names which can be long
     stamp = datetime.now().strftime("%Y%m%d")
     base = f"{_sanitize_name(project_name)}__{_sanitize_name(experimenter)}__ingest_{stamp}.py"
     return base
+
+
+def _discover_sessions_by_levels(
+    root: str,
+    level_configs: List[Dict[str, str]],
+    depth_override: int | None = None,
+) -> List[Dict[str, str]]:
+    """Discover session folders by traversing directory levels as defined in Project.
+
+    Returns a list of dicts with keys: session_id, subject_id, path, date (if available).
+    """
+    depth = depth_override if isinstance(depth_override, int) and depth_override > 0 else (
+        len(level_configs) if isinstance(level_configs, list) and len(level_configs) > 0 else 1
+    )
+    # Traverse down to the session level while enforcing placeholder patterns at each level
+    current: List[str] = [root]
+    for i in range(depth):
+        placeholder = "<LEVEL>"
+        if isinstance(level_configs, list) and i < len(level_configs):
+            placeholder = str(level_configs[i].get("placeholder") or "<LEVEL>")
+        nxt: List[str] = []
+        for parent in current:
+            try:
+                for e in os.scandir(parent):
+                    if not e.is_dir():
+                        continue
+                    name = e.name
+                    # Skip non-data files
+                    if name.endswith('.json') or name in ['brainstem_config.yaml', 'dataset.yaml', 'project.json']:
+                        continue
+                    if _name_matches_placeholder(placeholder, name):
+                        nxt.append(e.path)
+            except Exception:
+                continue
+        current = sorted(nxt)
+        if not current:
+            break
+    sessions: List[Dict[str, str]] = []
+    # Identify indices for subject and date levels
+    types = [str(lc.get("type", "")) for lc in (level_configs or [])]
+    try:
+        subj_idx = types.index("Subject ID")
+    except ValueError:
+        subj_idx = None  # type: ignore
+    try:
+        date_idx = types.index("Session day")
+    except ValueError:
+        date_idx = None  # type: ignore
+
+    from pathlib import Path
+    for p in current:
+        try:
+            rel_parts = Path(p).resolve().relative_to(Path(root).resolve()).parts
+        except Exception:
+            # Fallback: split manually (may be less accurate on Windows)
+            rel_parts = os.path.relpath(p, root).split(os.sep)
+        if not rel_parts:
+            continue
+        session_id = rel_parts[-1]
+        subject_id = rel_parts[subj_idx] if subj_idx is not None and subj_idx < len(rel_parts) else ""
+        date_val = rel_parts[date_idx] if date_idx is not None and date_idx < len(rel_parts) else ""
+        sessions.append({
+            "session_id": session_id,
+            "subject_id": subject_id,
+            "date": date_val,
+            "path": p,
+        })
+    return sessions
 
 
 def _open_in_file_manager(path: str, *, select: bool = False) -> None:
@@ -1625,236 +1731,144 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     st.caption("Preview (spec with <placeholders>)")
     st.code(tree_text)
 
-    # Validate actual folders against the spec
-    def _validate_folder_structure(spec_text: str, base_dir: str) -> Tuple[bool, List[str]]:
-        import re as _re
-        from datetime import datetime
-        
-        def _is_date_like(text: str) -> bool:
-            """Check if a string looks like a date using multiple strategies."""
-            # Strategy 1: Common date patterns (flexible regex)
-            common_patterns = [
-                r'^20\d{2}[_-]?\d{1,2}[_-]?\d{1,2}$',  # YYYY_MM_DD, YYYY-MM-DD, YYYYMMDD (2000-2099)
-                r'^\d{1,2}[_-]?\d{1,2}[_-]?20\d{2}$',  # MM_DD_YYYY, DD_MM_YYYY, MMDDYYYY
-                r'^\d{2}[_-]?\d{1,2}[_-]?\d{1,2}$',    # YY_MM_DD, YYMMDD
-                r'^\d{8}$',                              # Generic 8-digit dates
-                r'^\d{6}$',                              # Generic 6-digit dates (YYMMDD)
-            ]
-            
-            for pattern in common_patterns:
-                if _re.match(pattern, text):
-                    return True
-            
-            # Strategy 2: Try parsing as date (more permissive)
-            try:
-                # Remove common separators for parsing attempts
-                clean_text = text.replace('_', '').replace('-', '')
-                
-                # Try various date formats
-                formats_to_try = [
-                    '%Y%m%d',    # YYYYMMDD
-                    '%y%m%d',    # YYMMDD
-                    '%m%d%Y',    # MMDDYYYY
-                    '%d%m%Y',    # DDMMYYYY
-                ]
-                
-                for fmt in formats_to_try:
-                    try:
-                        datetime.strptime(clean_text, fmt)
-                        return True
-                    except ValueError:
-                        continue
-                        
-                # Try with separators
-                for sep in ['_', '-']:
-                    if sep in text:
-                        parts = text.split(sep)
-                        if len(parts) == 3:
-                            # Try to parse as YYYY-MM-DD or MM-DD-YYYY or DD-MM-YYYY
-                            try:
-                                if len(parts[0]) == 4:  # YYYY-MM-DD
-                                    datetime(int(parts[0]), int(parts[1]), int(parts[2]))
-                                    return True
-                                elif len(parts[2]) == 4:  # MM-DD-YYYY or DD-MM-YYYY
-                                    datetime(int(parts[2]), int(parts[0]), int(parts[1]))
-                                    return True
-                                    # Note: Ambiguity between MM-DD and DD-MM, but both are valid dates
-                            except (ValueError, TypeError):
-                                continue
-            except Exception:
-                pass
-            
-            return False
-        
-        def _extract_date_placeholders(spec_text: str) -> List[str]:
-            """Extract date-like placeholders from the spec."""
-            # Find all placeholders in angle brackets
-            placeholders = _re.findall(r'<([^>]+)>', spec_text)
-            date_placeholders = []
-            
-            for placeholder in placeholders:
-                # Check if placeholder looks like a date format
-                if any(date_part in placeholder.upper() for date_part in ['YYYY', 'YY', 'MM', 'DD', 'DATE']):
-                    date_placeholders.append(f"<{placeholder}>")
-            
-            return date_placeholders
-        
-        def _matches_placeholder_pattern(folder_name: str, placeholder: str) -> bool:
-            """Check if a folder name matches a specific placeholder pattern exactly."""
-            if placeholder == "<SUBJECT_ID>":
-                return True  # Any non-empty name is valid for subject
-            elif placeholder == "<SESSION_ID>":
-                return True  # Any non-empty name is valid for session
-            elif placeholder.startswith("<YYYY") and placeholder.endswith(">"):
-                # Extract the expected pattern from the placeholder
-                pattern = placeholder.strip("<>")
-                
-                # Convert placeholder pattern to regex
-                if pattern == "YYYY-MM-DD":
-                    return bool(_re.match(r'^20\d{2}-\d{2}-\d{2}$', folder_name))
-                elif pattern == "YYYY_MM_DD":
-                    return bool(_re.match(r'^20\d{2}_\d{2}_\d{2}$', folder_name))
-                elif pattern == "YYYYMMDD":
-                    return bool(_re.match(r'^20\d{6}$', folder_name))
-                elif pattern == "YYYY/MM/DD":
-                    return bool(_re.match(r'^20\d{2}/\d{2}/\d{2}$', folder_name))
-                # Add more specific patterns as needed
-                else:
-                    # Fall back to general date detection for unknown patterns
-                    return _is_date_like(folder_name)
-            else:
-                # For other custom placeholders, just check if non-empty
-                return len(folder_name.strip()) > 0
-        raw_lines = [l.rstrip() for l in spec_text.splitlines() if l.strip()]
-        def _content(line: str) -> str:
-            return (
-                line.replace("├──", "").replace("└──", "").replace("│", "").replace("─", "").strip()
-            )
-        contents = [_content(l) for l in raw_lines]
-        
-        # Parse the tree structure to understand the hierarchy
-        tree_levels = []
-        for content in contents:
-            if content and content.startswith("<") and content.endswith(">"):
-                tree_levels.append(content)
-        
-        has_subject = any("<SUBJECT_ID>" in level for level in tree_levels)
-        has_session = any("<SESSION_ID>" in level for level in tree_levels)
-        
-        # Extract date placeholders and their expected positions
-        used_date_placeholders = _extract_date_placeholders(spec_text)
-        has_dates = len(used_date_placeholders) > 0
-        expected_fmt = " or ".join(tok.strip("<>") for tok in used_date_placeholders) if used_date_placeholders else ""
-        
-        # Determine the expected structure based on tree levels
-        if len(tree_levels) >= 2:
-            first_level = tree_levels[0]  # Should be subject
-            second_level = tree_levels[1] if len(tree_levels) > 1 else None
-            third_level = tree_levels[2] if len(tree_levels) > 2 else None
-            
-            # Check if dates are in second level (separate date folders) or embedded in session names
-            date_is_second_level = second_level and any(placeholder in second_level for placeholder in used_date_placeholders)
-            date_embedded_in_session = third_level and "<SESSION_ID>" in third_level and any(placeholder in third_level for placeholder in used_date_placeholders)
-        else:
-            date_is_second_level = False
-            date_embedded_in_session = False
+    # Validate actual folders against the spec (generalized level-driven validator)
+    def _validate_folder_structure(spec_text: str, base_dir: str, level_cfgs: List[Dict[str, str]]) -> Tuple[bool, List[str]]:
+        """
+        Validate the project directory structure against user-defined level configurations.
 
-        msgs: List[str] = []
+        Rules:
+        - Each level has an associated placeholder pattern (may be composite like <SUBJECT_ID>_<SESSION_ID>).
+        - A directory at that level must match the placeholder regex produced by _placeholder_to_regex.
+        - Directories that do not match are reported as warnings (typo / unexpected folder).
+        - If a directory matches a deeper level's placeholder (e.g. a session folder where a date was expected),
+          we produce a specific 'misplaced' warning.
+        - Whitelisted non-structure directories/files at any level are ignored (config, outputs, etc.).
+        - If no valid directory is found for a non-terminal level (and depth > 1), we warn.
+        """
         ok = True
+        messages: List[str] = []
         if not os.path.isdir(base_dir):
             return False, [f"Base directory does not exist: {base_dir}"]
-        subjects = [e for e in os.scandir(base_dir) if e.is_dir()]
-        if has_subject and not subjects:
-            ok = False
-            msgs.append("No subject folders found in base directory.")
 
-        node_types = {
-            "subject": "subject",
-            "session_day": "session day",
-            "recording_session": "recording session",
-        }
-        
-        for subj in subjects:
-            if has_dates and date_is_second_level:
-                # Expect separate date folders under subject (structure: SUBJECT/DATE/SESSION)
-                subfolders = [d for d in os.scandir(subj.path) if d.is_dir()]
-                if not subfolders:
-                    ok = False
-                    msgs.append(f"{subj.name}: no date folders found (expected format: {expected_fmt}).")
+        # Pre-compute regex patterns for each level placeholder
+        level_patterns: List[Tuple[str, re.Pattern[str]]] = []
+        for cfg in level_cfgs:
+            placeholder = cfg.get("placeholder", "<CUSTOM>")
+            try:
+                pat = re.compile(_placeholder_to_regex(placeholder))
+            except Exception:
+                # Fallback broad pattern if malformed
+                pat = re.compile(r"^.+$")
+            level_patterns.append((placeholder, pat))
+
+        all_placeholders = [cfg.get("placeholder", "") for cfg in level_cfgs]
+        recording_level_idx = None
+        for i, cfg in enumerate(level_cfgs):
+            if cfg.get("type") == "Recording session":
+                recording_level_idx = i
+                break
+
+        whitelist_dirs = {"ingestion_scripts", "nwb_files", "__pycache__"}
+        whitelist_files_ext = {"xlsx", "json", "yaml", "yml", "lock"}
+
+        # Traverse breadth-first over valid parents per level
+        parents = [base_dir]
+        cumulative_valid_paths: List[List[str]] = []  # store valid names per level
+        for level_index, (placeholder, pattern) in enumerate(level_patterns):
+            next_parents: List[str] = []
+            valid_names: List[str] = []
+            invalid_names: List[str] = []
+            misplaced_names: List[str] = []
+
+            deeper_patterns = [re.compile(_placeholder_to_regex(ph)) for ph in all_placeholders[level_index + 1 :]] if level_index + 1 < len(all_placeholders) else []
+
+            for parent in parents:
+                try:
+                    entries = [e for e in os.scandir(parent) if e.is_dir()]
+                except FileNotFoundError:
                     continue
-                    
-                # Check each subfolder against expected date pattern
-                invalid_dirs = []
-                valid_date_dirs = []
-                
-                for subfolder in subfolders:
-                    # Skip special files like subject.json, etc.
-                    if subfolder.name.endswith('.json') or subfolder.name in ['brainstem_config.yaml', 'dataset.yaml', 'project.json']:
+                for entry in entries:
+                    name = entry.name
+                    # Skip hidden / whitelist
+                    if name.startswith('.'):
                         continue
-                        
-                    # Check if it matches any expected date placeholder
-                    is_valid = False
-                    for date_placeholder in used_date_placeholders:
-                        if _matches_placeholder_pattern(subfolder.name, date_placeholder):
-                            is_valid = True
-                            valid_date_dirs.append(subfolder)
-                            break
-                    
-                    if not is_valid:
-                        invalid_dirs.append(subfolder.name)
-                
-                if invalid_dirs:
-                    ok = False
-                    msgs.append(f"{subj.name}: these folders don't match expected date format '{expected_fmt}': {', '.join(invalid_dirs)}")
-                    
-                # Check for session folders under valid date folders
-                if has_session:
-                    for date_dir in valid_date_dirs:
-                        sess_dirs = [s for s in os.scandir(date_dir.path) if s.is_dir()]
-                        if not sess_dirs:
-                            ok = False
-                            msgs.append(f"{subj.name}/{date_dir.name}: no session folders found (expected <SESSION_ID>).")
-                            
-            elif has_session and not date_is_second_level:
-                # Sessions directly under subject (structure: SUBJECT/SESSION)
-                sess_dirs = [s for s in os.scandir(subj.path) if s.is_dir()]
-                if not sess_dirs:
-                    ok = False
-                    msgs.append(f"{subj.name}: no session folders found (expected <SESSION_ID>).")
-                else:
-                    # If dates are embedded in session names, validate that
-                    if date_embedded_in_session:
-                        invalid_sessions = []
-                        for sess_dir in sess_dirs:
-                            # Skip special files
-                            if sess_dir.name.endswith('.json') or sess_dir.name in ['brainstem_config.yaml', 'dataset.yaml', 'project.json']:
-                                continue
-                                
-                            # Check if session name contains expected date pattern
-                            contains_valid_date = False
-                            for date_placeholder in used_date_placeholders:
-                                if _matches_placeholder_pattern(sess_dir.name, date_placeholder):
-                                    contains_valid_date = True
-                                    break
-                            
-                            if not contains_valid_date:
-                                invalid_sessions.append(sess_dir.name)
-                        
-                        if invalid_sessions:
-                            ok = False
-                            msgs.append(f"{subj.name}: these session folders don't contain expected date format '{expected_fmt}': {', '.join(invalid_sessions)}")
+                    if name in whitelist_dirs:
+                        continue
+                    # Skip whitelisted file stems accidentally interpreted as dirs (rare) or meta dirs
+                    lower = name.lower()
+                    if any(lower.endswith(f".{ext}") for ext in whitelist_files_ext):
+                        continue
+                    # Core project config directories often at root
+                    if name in {".git", "venv", "env", "__pycache__"}:
+                        continue
+
+                    if pattern.fullmatch(name):
+                        valid_names.append(os.path.join(parent, name))
+                        next_parents.append(os.path.join(parent, name))
+                    else:
+                        # Check for misplaced (matches a deeper level pattern)
+                        misplaced = False
+                        for dp in deeper_patterns:
+                            if dp.fullmatch(name):
+                                misplaced = True
+                                break
+                        if misplaced:
+                            misplaced_names.append(name)
+                        else:
+                            invalid_names.append(name)
+
+            cumulative_valid_paths.append(valid_names)
+
+            # Report issues for this level
+            level_label = level_cfgs[level_index].get("type", f"Level {level_index + 1}")
+            placeholder_disp = placeholder
+            if valid_names:
+                messages.append(
+                    f"Level {level_index + 1} ({level_label}) – found {len(valid_names)} matching folder(s) for pattern {placeholder_disp}."
+                )
             else:
-                # No specific structure requirements
-                pass
+                messages.append(
+                    f"Level {level_index + 1} ({level_label}) – no folders matched pattern {placeholder_disp}."
+                )
+                ok = False
+
+            if misplaced_names:
+                ok = False
+                preview = ", ".join(misplaced_names[:6]) + (" ..." if len(misplaced_names) > 6 else "")
+                messages.append(
+                    f"Level {level_index + 1}: {len(misplaced_names)} folder(s) look like deeper-level entries (misplaced): {preview}"
+                )
+            if invalid_names:
+                ok = False
+                preview = ", ".join(invalid_names[:6]) + (" ..." if len(invalid_names) > 6 else "")
+                messages.append(
+                    f"Level {level_index + 1}: {len(invalid_names)} folder(s) do not match expected pattern {placeholder_disp}: {preview}"
+                )
+
+            # Stop descending if no valid parents for deeper levels
+            if not next_parents:
+                # If this is not the final level we expected, remaining levels cannot be validated
+                if level_index < len(level_patterns) - 1:
+                    messages.append(
+                        f"Stopped at level {level_index + 1}; deeper levels cannot be validated because no matching parent folders were found."
+                    )
+                break
+            parents = next_parents
+
+        # Additional recording session presence check
+        if recording_level_idx is not None:
+            if recording_level_idx >= len(cumulative_valid_paths) or not cumulative_valid_paths[recording_level_idx]:
+                ok = False
+                messages.append("No recording session folders detected at the configured recording level.")
 
         if ok:
-            msgs.append("Folder structure looks consistent with the spec.")
-        return ok, msgs
+            messages.append("Folder structure looks consistent with the spec.")
+        return ok, messages
 
     check_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
     st.caption(f"Structure check base: {check_root}")
     if st.button("Check folder structure against spec", key=f"check_folder_{initial.get('_mode','')}"):
-        ok, messages = _validate_folder_structure(tree_text, check_root)
+        ok, messages = _validate_folder_structure(tree_text, check_root, level_configs)
         for m in messages:
             (st.success if ok else st.warning)(m)
 
@@ -1878,6 +1892,8 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         "acquisition_types": selected_acq,
         "data_formats": data_formats,
         "data_organization": tree_text,
+        "recording_level_depth": int(depth),
+        "level_configs": level_configs,
         "project_root_dir": project_root_dir,
     }
 
@@ -2887,22 +2903,95 @@ def main() -> None:
         ing_dir = _ingestion_dir(root)
         _ensure_dir(ing_dir)
 
+        # Resolve session registry template and session list
+        ds_cfg = _load_dataset_yaml(root)
+        persisted_template = ds_cfg.get("session_registry_template") if isinstance(ds_cfg, dict) else None
+        def _detect_latest_template(r: str) -> str | None:
+            candidates: List[str] = []
+            for ext in ("csv", "xlsx", "xls"):
+                candidates.extend(glob.glob(os.path.join(r, f"*recordings*.{ext}")))
+            if not candidates:
+                return None
+            candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            return candidates[0]
+        tmpl_path = persisted_template if (persisted_template and os.path.exists(persisted_template)) else _detect_latest_template(root)
+
+        # Build session list from project-defined directory levels; fallback to template/scan
+        df_tmpl = None
+        if tmpl_path:
+            try:
+                df_tmpl = pd.read_csv(tmpl_path) if tmpl_path.endswith(".csv") else pd.read_excel(tmpl_path)
+            except Exception:
+                df_tmpl = None
+        session_rows: List[Dict[str, Any]] = []
+        level_cfgs = ds_cfg.get("level_configs") if isinstance(ds_cfg, dict) else None
+        if isinstance(level_cfgs, list) and level_cfgs:
+            # Discover via level config traversal (use recorded depth if present)
+            rec_depth = None
+            if isinstance(ds_cfg, dict):
+                try:
+                    rec_depth = int(ds_cfg.get("recording_level_depth")) if ds_cfg.get("recording_level_depth") is not None else None
+                except Exception:
+                    rec_depth = None
+            session_rows = _discover_sessions_by_levels(root, level_cfgs, rec_depth)
+        elif df_tmpl is not None and not df_tmpl.empty and "session_id" in df_tmpl.columns:
+            for _, r in df_tmpl.iterrows():
+                sid = str(r.get("session_id", "")).strip()
+                if not sid:
+                    continue
+                sub = str(r.get("subject_id") or r.get("subject") or "").strip()
+                session_rows.append({"session_id": sid, "subject_id": sub, "path": os.path.join(root, sid), "date": str(r.get('session_start_time', ''))})
+        else:
+            # Heuristic fallback: try depth=3 session discovery
+            try:
+                depth3 = _discover_sessions_by_levels(root, [{}, {}, {}])
+            except Exception:
+                depth3 = []
+            if depth3:
+                session_rows = depth3
+            else:
+                try:
+                    for entry in os.scandir(root):
+                        if entry.is_dir():
+                            session_rows.append({"session_id": entry.name, "subject_id": "", "path": entry.path, "date": ""})
+                except Exception:
+                    pass
+
         # Launch a new conversion
         st.subheader("Run a conversion")
         scripts = [p for p in sorted(os.listdir(ing_dir)) if p.endswith('.py')]
         if not scripts:
             st.info("No scripts in ingestion_scripts. Create one in 'Create conversion scripts'.")
         else:
-            sel = st.selectbox("Script", scripts, index=0)
+            sel = st.selectbox("Script", scripts, index=0, key="run_script_sel")
+            # Pick a session
+            labels = [
+                f"{row.get('session_id','')}" + (f"  —  {row.get('subject_id','')}" if row.get('subject_id') else "")
+                for row in session_rows
+            ]
+            pick_label = st.selectbox("Pick a session", options=(labels or ["(no sessions found)"])) if labels else None
+            pick_idx = (labels.index(pick_label) if (labels and pick_label in labels) else None)
+            picked = session_rows[pick_idx] if (pick_idx is not None) else {"session_id": "", "subject_id": ""}
+            session_id = picked.get("session_id", "")
+            subject_id = picked.get("subject_id", "")
+
+            # Defaults derived from selection
+            default_source = picked.get("path") or (os.path.join(root, session_id) if session_id else "")
+            nwb_dir = os.path.join(root, "nwb_files")
+            _ensure_dir(nwb_dir)
+            base_name = "_".join([_sanitize_name(v) for v in (subject_id, session_id) if v]) or _sanitize_name(session_id)
+            default_output = os.path.join(nwb_dir, f"{base_name}.nwb") if session_id else ""
+
             c1, c2 = st.columns(2)
             with c1:
-                session_id = st.text_input("Session ID", value=datetime.now().strftime("%Y%m%d"))
-                source = st.text_input("Source folder", value="", placeholder="Path to session folder")
+                source = st.text_input("Source folder", value=default_source, placeholder="Path to session folder", key="run_source")
             with c2:
-                output = st.text_input("Output NWB path", value="", placeholder="/path/to/output.nwb")
-                overwrite = st.checkbox("Overwrite output if exists", value=False)
+                output = st.text_input("Output NWB path", value=default_output, placeholder=os.path.join(nwb_dir, "<SUBJECT>_<SESSION>.nwb"), key="run_output")
+                overwrite = st.checkbox("Overwrite output if exists", value=False, key="run_overwrite")
             if st.button("Run conversion", type="primary"):
-                if not source or not output or not session_id:
+                if not session_id:
+                    st.error("Please pick a session.")
+                elif not source or not output:
                     st.error("Provide source, output, and session ID.")
                 else:
                     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -2926,13 +3015,20 @@ def main() -> None:
 
         # Session registry from template
         st.subheader("Session registry")
-        tmpl_path = None
-        for ext in ("csv", "xlsx", "xls"):
-            matches = glob.glob(os.path.join(root, f"*recordings*.{ext}"))
-            if matches:
-                tmpl_path = matches[0]
-                break
-        if tmpl_path is None:
+        # Show and allow changing the active template; persist in dataset.yaml
+        current_tmpl = tmpl_path or ""
+        tmpl_in = st.text_input("Template file path (.xlsx or .csv)", value=current_tmpl, placeholder="/path/to/*recordings*.xlsx or .csv")
+        if st.button("Save template path"):
+            try:
+                save_ds = ds_cfg if isinstance(ds_cfg, dict) else {}
+                save_ds["session_registry_template"] = tmpl_in
+                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                    yaml.safe_dump(save_ds, f)
+                st.success("Saved template path to dataset.yaml")
+                tmpl_path = tmpl_in
+            except Exception as e:
+                st.error(f"Failed to save template path: {e}")
+        if not tmpl_path:
             st.info("No template spreadsheet found. Create one in 'Data description'.")
         else:
             try:
@@ -2940,17 +3036,17 @@ def main() -> None:
             except Exception as e:
                 st.error(f"Failed to read template: {e}")
                 df_tmpl = pd.DataFrame()
-            if not df_tmpl.empty and "session_id" in df_tmpl.columns:
+            if session_rows:
                 runs = _load_runs(root)
                 run_map: Dict[str, List[Dict[str, Any]]] = {}
                 for r in runs:
                     sid = str(r.get("session_id", ""))
                     run_map.setdefault(sid, []).append(r)
                 rows: List[Dict[str, Any]] = []
-                for _, row in df_tmpl.iterrows():
+                for row in session_rows:
                     sid = str(row.get("session_id", ""))
-                    subj = row.get("subject_id") or row.get("subject") or ""
-                    date = row.get("session_start_time") or row.get("date") or row.get("session_date") or ""
+                    subj = row.get("subject_id", "")
+                    date = row.get("date", "")
                     run_list = run_map.get(sid, [])
                     last = run_list[-1] if run_list else None
                     script = os.path.basename(last.get("script", "")) if last else ""
@@ -2985,7 +3081,7 @@ def main() -> None:
             else:
                 st.info("Template missing 'session_id' column or no data.")
 
-        st.subheader("Previous runs")
+        return
         runs = _load_runs(root)
         if not runs:
             st.caption("No runs recorded yet.")
