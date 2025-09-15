@@ -1917,21 +1917,158 @@ def main() -> None:
             label = str(f.get("label", key))
             ftype = str(f.get("type", "text"))
             default_val = cfg.get(key, "")
+            wkey = f"repo_cfg_{sel}_{key}"
+            if wkey not in st.session_state:
+                st.session_state[wkey] = default_val
             if ftype == "password":
-                new_cfg[key] = st.text_input(label, value=default_val, type="password")
+                st.text_input(label, key=wkey, type="password")
             else:
-                new_cfg[key] = st.text_input(label, value=default_val)
+                st.text_input(label, key=wkey)
+            new_cfg[key] = st.session_state.get(wkey, "")
 
         st.subheader("Repository metadata")
+        # Apply any prefill captured from a previous fetch before instantiating widgets
+        _prefill_key = f"_repo_prefill_meta_{sel}"
+        _prefill = st.session_state.pop(_prefill_key, None)
+        if isinstance(_prefill, dict):
+            for mk, mv in _prefill.items():
+                st.session_state[f"repo_meta_{sel}_{mk}"] = mv
+
         meta = dict(repo_cfg.get("metadata", {})) if isinstance(repo_cfg, dict) else {}
         new_meta: Dict[str, Any] = {}
         for mkey in entry.get("expected_metadata_fields", []):
             label = mkey.capitalize()
             placeholder = "Comma-separated" if mkey == "keywords" else ""
+            wkey = f"repo_meta_{sel}_{mkey}"
+            if wkey not in st.session_state:
+                st.session_state[wkey] = meta.get(mkey, "")
             if mkey in ("citation",):
-                new_meta[mkey] = st.text_area(label, value=meta.get(mkey, ""))
+                st.text_area(label, key=wkey)
             else:
-                new_meta[mkey] = st.text_input(label, value=meta.get(mkey, ""), placeholder=placeholder)
+                st.text_input(label, key=wkey, placeholder=placeholder)
+            new_meta[mkey] = st.session_state.get(wkey, "")
+
+        # Fetch metadata from repository APIs (DANDI supported)
+        if sel == "DANDI Archive":
+            if st.button("Fetch Dandiset metadata"):
+                api_key = new_cfg.get("api_key") or st.session_state.get(f"repo_cfg_{sel}_api_key", "")
+                dandiset_id = new_cfg.get("dandiset_id") or st.session_state.get(f"repo_cfg_{sel}_dandiset_id", "")
+                server = new_cfg.get("server") or st.session_state.get(f"repo_cfg_{sel}_server", "")
+                if not dandiset_id:
+                    st.error("Please enter a Dandiset ID in Repository settings.")
+                else:
+                    try:
+                        import requests  # type: ignore
+                        base = "https://api.dandiarchive.org"
+                        s = (server or "").lower()
+                        if s:
+                            if "api.sandbox" in s or "sandbox" in s:
+                                base = "https://api.sandbox.dandiarchive.org"
+                            elif s.startswith("http") and "api.dandiarchive" in s:
+                                base = s.rstrip("/")
+                        headers = {}
+                        if api_key:
+                            headers["Authorization"] = f"token {api_key}"
+
+                        # Try draft first, then fallback to latest published
+                        md_obj = None
+                        url = f"{base}/api/dandisets/{dandiset_id}/versions/draft"
+                        r = requests.get(url, headers=headers, timeout=20)
+                        if r.status_code == 200:
+                            md_obj = r.json()
+                        else:
+                            # List versions and pick latest published
+                            r2 = requests.get(f"{base}/api/dandisets/{dandiset_id}/versions", headers=headers, timeout=20)
+                            r2.raise_for_status()
+                            versions = r2.json() or []
+                            pub = None
+                            for v in versions:
+                                if str(v.get("status", "")).lower() == "published":
+                                    pub = v
+                            if pub and pub.get("version"):
+                                vurl = f"{base}/api/dandisets/{dandiset_id}/versions/{pub['version']}"
+                                r3 = requests.get(vurl, headers=headers, timeout=20)
+                                r3.raise_for_status()
+                                md_obj = r3.json()
+                        if not md_obj:
+                            st.error("Failed to retrieve Dandiset metadata. Check Dandiset ID, server, and permissions.")
+                        else:
+                            meta_src = md_obj.get("metadata") or md_obj
+                            # Map to our fields
+                            fetched: Dict[str, str] = {}
+                            # license
+                            lic = meta_src.get("license")
+                            if isinstance(lic, list):
+                                fetched["license"] = ", ".join(str(x.get("name") if isinstance(x, dict) else x) for x in lic)
+                            elif isinstance(lic, dict):
+                                fetched["license"] = str(lic.get("name") or lic.get("spdx") or lic)
+                            elif lic:
+                                fetched["license"] = str(lic)
+                            # keywords
+                            kws = meta_src.get("keywords")
+                            if isinstance(kws, list):
+                                fetched["keywords"] = ", ".join(map(str, kws))
+                            elif isinstance(kws, str):
+                                fetched["keywords"] = kws
+                            # contributors -> contributor names
+                            contrib = meta_src.get("contributor") or meta_src.get("contributors")
+                            if isinstance(contrib, list):
+                                names = []
+                                affs: Set[str] = set()
+                                for c in contrib:
+                                    if isinstance(c, dict):
+                                        n = c.get("name") or c.get("fullname") or c.get("email")
+                                        if n:
+                                            names.append(str(n))
+                                        a = c.get("affiliation")
+                                        if isinstance(a, list):
+                                            for ai in a:
+                                                if isinstance(ai, dict):
+                                                    nm = ai.get("name")
+                                                    if nm:
+                                                        affs.add(str(nm))
+                                                elif isinstance(ai, str):
+                                                    affs.add(ai)
+                                        elif isinstance(a, dict):
+                                            nm = a.get("name")
+                                            if nm:
+                                                affs.add(str(nm))
+                                        elif isinstance(a, str):
+                                            affs.add(a)
+                                if names:
+                                    fetched["contributor"] = "; ".join(names)
+                                if affs:
+                                    fetched["affiliation"] = "; ".join(sorted(affs))
+                            # funding
+                            fund = meta_src.get("funding")
+                            if isinstance(fund, list):
+                                fetched["funding"] = "; ".join(map(str, fund))
+                            elif isinstance(fund, str):
+                                fetched["funding"] = fund
+                            # citation
+                            cit = meta_src.get("citation") or meta_src.get("howToCite")
+                            if cit:
+                                fetched["citation"] = str(cit)
+
+                            # Queue prefill for the next run to avoid modifying widget state post-instantiation
+                            st.session_state[_prefill_key] = fetched
+                            # Save into dataset.yaml
+                            ds = ds if isinstance(ds, dict) else {}
+                            ds.setdefault("repository", {})
+                            ds["repository"].setdefault("metadata", {})
+                            ds["repository"]["metadata"].update(fetched)
+                            try:
+                                with open(os.path.join(root, "dataset.yaml"), "w", encoding="utf-8") as f:
+                                    yaml.safe_dump(ds, f)
+                                st.success("Fetched Dandiset metadata and saved to dataset.yaml")
+                                try:
+                                    st.rerun()  # Streamlit >= 1.30
+                                except Exception:
+                                    st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"Fetched but failed to save metadata: {e}")
+                    except Exception as e:
+                        st.error(f"Failed to fetch from DANDI API: {e}")
 
         if st.button("Save repository settings", type="primary"):
             ds = ds if isinstance(ds, dict) else {}
