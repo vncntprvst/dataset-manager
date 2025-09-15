@@ -734,6 +734,75 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
         if not metadata['NWBFile'].get('session_description'):
             metadata['NWBFile']['session_description'] = f'Session {{args.session_id}}'
 
+        # Best-effort derivation of additional fields from source data
+        derived: Dict[str, Any] = {{}}
+        try:
+            # Ephys acquisition system from selected interface keys
+            ephys_keys = [k for k in (source_data.keys() if isinstance(source_data, dict) else []) if k.startswith('ecephys__')]
+            if ephys_keys:
+                # Take first key suffix as system label
+                derived['ephys_acq_system'] = ephys_keys[0].split('__', 1)[-1]
+                # Attempt to parse SpikeGLX/OpenEphys metadata for sample rate and channels
+                import re as _re
+                from pathlib import Path as _P
+                folder = source_data[ephys_keys[0]].get('folder_path')
+                if folder:
+                    p = _P(folder)
+                    meta_files = list(p.glob('*.meta')) + list(p.glob('*.ap.meta'))
+                    if meta_files:
+                        try:
+                            txt = meta_files[0].read_text(encoding='utf-8', errors='ignore')
+                            m = _re.search(r'(?m)^imSampRate=(\d+(?:\.\d+)?)', txt) or _re.search(r'(?m)^acqRate=(\d+(?:\.\d+)?)', txt)
+                            if m:
+                                derived['sampling_rate_hz'] = float(m.group(1))
+                            m2 = _re.search(r'(?m)^nSavedChans=(\d+)', txt)
+                            if m2:
+                                derived['num_channels'] = int(m2.group(1))
+                        except Exception:
+                            pass
+
+            # Behavior/video frame rate and camera count
+            beh_keys = [k for k in (source_data.keys() if isinstance(source_data, dict) else []) if k.startswith('behavior__')]
+            if beh_keys:
+                derived['behavior_modality'] = ', '.join(sorted(set(k.split('__', 1)[-1] for k in beh_keys)))
+                # Count video files and try to read fps
+                from pathlib import Path as _P
+                vids = []
+                exts = ('*.mp4','*.avi','*.mov','*.mkv')
+                # Source may be file_paths list
+                for k in beh_keys:
+                    files = source_data[k].get('file_paths') or []
+                    for f in files:
+                        if any(str(f).lower().endswith(e[1:]) for e in exts):
+                            vids.append(f)
+                if not vids:
+                    # fall back to scanning
+                    try:
+                        for e in exts:
+                            vids += [str(p) for p in _P(args.source).rglob(e)]
+                    except Exception:
+                        pass
+                if vids:
+                    derived['camera_count'] = len(vids)
+                    fps = None
+                    try:
+                        import cv2  # type: ignore
+                        cap = cv2.VideoCapture(vids[0])
+                        fps = cap.get(cv2.CAP_PROP_FPS)
+                        cap.release()
+                    except Exception:
+                        try:
+                            import imageio.v2 as imageio  # type: ignore
+                            r = imageio.get_reader(vids[0])
+                            fps = r.get_meta_data().get('fps')
+                            r.close()
+                        except Exception:
+                            fps = None
+                    if fps:
+                        derived['frame_rate_fps'] = float(fps)
+        except Exception:
+            pass
+
         converter.run_conversion(
             metadata=metadata,
             nwbfile_path=args.output,
@@ -747,6 +816,7 @@ def _generate_conversion_script_text(cfg: Dict[str, Any]) -> str:
             'session_id': args.session_id,
             'timestamp': datetime.datetime.now().isoformat(),
             'interfaces': list(ProjectConverter.data_interface_classes.keys()),
+            'auto_fields': derived,
         }}
         with open(args.output + '.provenance.json', 'w', encoding='utf-8') as f:
             json.dump(prov, f, indent=2)
@@ -2232,7 +2302,48 @@ def main() -> None:
                         auto_fields.append(f)
                         auto_set.add(f)
 
-            st.subheader("Columns Preview")
+            # If repository configured, move all Dataset-category fields to auto
+            try:
+                repo_cfg = (ds_for_repo or {}).get("repository", {})
+            except Exception:
+                repo_cfg = {}
+            if isinstance(repo_cfg, dict) and repo_cfg.get("name"):
+                dataset_fields = [f for f in fields if get_field_category(f) == "Dataset"]
+                if dataset_fields:
+                    user_fields = [f for f in user_fields if f not in dataset_fields]
+                    auto_set = set(auto_fields)
+                    for f in dataset_fields:
+                        if f not in auto_set:
+                            auto_fields.append(f)
+                            auto_set.add(f)
+
+            # Always treat known derived-from-data fields as auto-populated
+            derived_auto = {
+                "behavior_modality",
+                "camera_count",
+                "electrode_configuration",
+                "ephys_acq_system",
+                "event_timing_precision_ms",
+                "frame_rate_fps",
+                "num_channels",
+                "probe_model",
+                "reference_scheme",
+                "sampling_rate_hz",
+                "stimulus_type",
+                "sync_system",
+                "task_protocol",
+                "tracking_software",
+            }
+            must_auto = [f for f in fields if f in derived_auto]
+            if must_auto:
+                user_fields = [f for f in user_fields if f not in must_auto]
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
+
+            st.subheader("Metadata fields preview")
             desc_map = get_field_descriptions()
             brainstem_vals = st.session_state.get("brainstem_fields", {})
 
@@ -2247,7 +2358,11 @@ def main() -> None:
                     if show_values:
                         row["Value"] = brainstem_vals.get(f, "")
                     rows.append(row)
-                df = pd.DataFrame(rows)
+                # Ensure we always have expected columns even if no rows
+                base_cols = ["Field", "Category", "Description"] + (["Value"] if show_values else [])
+                df = pd.DataFrame(rows, columns=base_cols)
+                if df.empty:
+                    return df
                 # Priority order: Dataset, Subject, Session, Experiment, then others alphabetically
                 priority = {"Dataset": 0, "Subject": 1, "Session": 2, "Experiment": 3}
                 df["CatRank"] = df["Category"].map(priority).fillna(9_999).astype(int)
@@ -2468,6 +2583,41 @@ def main() -> None:
             repo_auto = set(_repo_expected_fields(ds_for_repo))
             if repo_auto:
                 must_auto = [f for f in columns if f in repo_auto]
+                user_fields = [f for f in user_fields if f not in must_auto]
+                auto_set = set(auto_fields)
+                for f in must_auto:
+                    if f not in auto_set:
+                        auto_fields.append(f)
+                        auto_set.add(f)
+            # If repository configured, move all Dataset-category fields to auto
+            if isinstance(ds_for_repo, dict) and isinstance(ds_for_repo.get("repository"), dict) and ds_for_repo["repository"].get("name"):
+                dataset_fields = [c for c in columns if get_field_category(c) == "Dataset"]
+                if dataset_fields:
+                    user_fields = [f for f in user_fields if f not in dataset_fields]
+                    auto_set = set(auto_fields)
+                    for f in dataset_fields:
+                        if f not in auto_set:
+                            auto_fields.append(f)
+                            auto_set.add(f)
+            # Always treat known derived-from-data fields as auto-populated
+            derived_auto = {
+                "behavior_modality",
+                "camera_count",
+                "electrode_configuration",
+                "ephys_acq_system",
+                "event_timing_precision_ms",
+                "frame_rate_fps",
+                "num_channels",
+                "probe_model",
+                "reference_scheme",
+                "sampling_rate_hz",
+                "stimulus_type",
+                "sync_system",
+                "task_protocol",
+                "tracking_software",
+            }
+            must_auto = [f for f in columns if f in derived_auto]
+            if must_auto:
                 user_fields = [f for f in user_fields if f not in must_auto]
                 auto_set = set(auto_fields)
                 for f in must_auto:
