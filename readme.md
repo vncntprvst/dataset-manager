@@ -9,7 +9,7 @@
 ![Last Commit](https://img.shields.io/github/last-commit/vncntprvst/dataset-manager.svg)
 ![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-ff4b4b.svg)
 
-A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB / DANDI archive submission requirements.
+A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB (Neurodata Without Borders) and DANDI (Distributed Archives for Neurophysiology Data Integration) submission requirements.
 
 This project was created as part of the Team BRAIN Circuit Program (U19) NS137920:  
 🔗 [_High- and low-level computations for coordination of orofacial motor actions_](https://rhythm-n-rodents.github.io/)
@@ -21,12 +21,16 @@ This application generates data collection templates and conversion scripts tail
 <img width="863" height="899" alt="image" src="https://github.com/user-attachments/assets/2ab91c40-3f54-4e5d-b9c3-fc4c368acaa7" />
 
 ### Workflow
+The simplest to launch the app is using **uv** (see [installation instructions](https://docs.astral.sh/uv/getting-started/installation/)).  
+Clone or download this repository, then double-click `run_app.bat` (Windows) - or run `./run_app.sh` (Mac/Linux) from the terminal.  
+You can also drag and drop a dataset folder onto the script icon.  
 
+Once the app is running in your browser:
 1. Select experimental types relevant to your research
-2. Create a dataset on a data repository (e.g., DANDI)
-3. Generate and download your customized template as `.xlsx` or `.csv`. This interface helps researchers create standardized data collection templates that comply with NWB (Neurodata Without Borders) and DANDI (Distributed Archives for Neurophysiology Data Integration) standards.
-4. Generate a conversion script to transform your collected data into NWB files.
-5. Use the generated script to convert your data into NWB format, ensuring it meets the necessary standards for sharing and archiving. 
+2. Create a new dataset on a data repository (e.g., DANDI)
+3. Generate and download your customized template as `.xlsx` or `.csv`. This interface helps standardizing data collection that comply with NWB and DANDI standards.
+4. Generate a Python conversion script.
+5. Use that script to convert your data into NWB format, ensuring it meets the necessary standards for sharing and archiving. 
 
 ### Supported Experimental Types
 - Electrophysiology – Extracellular / Intracellular
@@ -44,10 +48,10 @@ The application enforces data standards via two complementary schema layers:
 
 With those definitions in place, the app generates a session-oriented spreadsheet template (one row per recording session) for you to complete.
 
-### Usage
-- Clone this repository.  
+### Installation
+* Clone this repository.  
     `git clone https://github.com/vncntprvst/dataset-manager.git`
-- Run the app:
+* Run the app:
     * Double-click `run_app.bat` (Windows) or run `./run_app.sh` (Mac/Linux) from the terminal.   
     You can also drag and drop a data folder onto the script icon.
     * Alternatively:
