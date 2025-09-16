@@ -21,9 +21,9 @@ This application generates data collection templates and conversion scripts tail
 <img width="430" height="449" alt="image" src="https://github.com/user-attachments/assets/2ab91c40-3f54-4e5d-b9c3-fc4c368acaa7" />
 
 ### Workflow
-The simplest way to launch the app is using **uv** (see [installation instructions](https://docs.astral.sh/uv/getting-started/installation/)).  
-Clone or download this repository, then double-click `run_app.bat` (Windows) - or run `./run_app.sh` (Mac/Linux) from the terminal.  
-You can also drag and drop a dataset folder onto the script icon.  
+The simplest way to launch the app is using [**uv**](https://docs.astral.sh/uv/getting-started/installation/)).  
+If _uv_ is installed, just clone or download this repository, then double-click `run_app.bat` (Windows) - or run `./run_app.sh` (Mac/Linux) from the terminal.  
+You can also drag and drop a dataset folder onto the script icon. See also [alternative installation](#Installation) options. 
 
 Once the app is running in your browser:
 1. Select experimental types relevant to your research
