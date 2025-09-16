@@ -54,6 +54,10 @@ This application is designed to integrate seamlessly with the BrainSTEM platform
 
 
 
+https://github.com/user-attachments/assets/29b77c0a-48cd-4097-8a57-d782d0fcbea6
+
+
+
 ### Installation
 * Clone this repository.  
     `git clone https://github.com/vncntprvst/dataset-manager.git`
