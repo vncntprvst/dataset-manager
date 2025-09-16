@@ -18,10 +18,10 @@ This project was created as part of the Team BRAIN Circuit Program (U19) NS13792
 
 This application generates data collection templates and conversion scripts tailored to specific experimental types. Users select their experimental modalities, and the tool automatically creates spreadsheets with the appropriate metadata fields required for NWB file creation and DANDI archive submission, and then generates a script to convert the collected data into NWB format.
 
-<img width="863" height="899" alt="image" src="https://github.com/user-attachments/assets/2ab91c40-3f54-4e5d-b9c3-fc4c368acaa7" />
+<img width="430" height="449" alt="image" src="https://github.com/user-attachments/assets/2ab91c40-3f54-4e5d-b9c3-fc4c368acaa7" />
 
 ### Workflow
-The simplest to launch the app is using **uv** (see [installation instructions](https://docs.astral.sh/uv/getting-started/installation/)).  
+The simplest way to launch the app is using **uv** (see [installation instructions](https://docs.astral.sh/uv/getting-started/installation/)).  
 Clone or download this repository, then double-click `run_app.bat` (Windows) - or run `./run_app.sh` (Mac/Linux) from the terminal.  
 You can also drag and drop a dataset folder onto the script icon.  
 
