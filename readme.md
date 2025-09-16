@@ -50,13 +50,9 @@ With those definitions in place, the app generates a session-oriented spreadshee
 
 ### Integration with BrainSTEM 
 
-This application is designed to integrate seamlessly with the BrainSTEM platform, allowing for efficient data management and analysis. Users can easily import their notes and metadata from BrainSTEM during the data conversion process, ensuring that all relevant information is accurately captured and organized.
+This application is designed to integrate seamlessly with the BrainSTEM platform, allowing for efficient data management and analysis. Users can easily import their notes and metadata from BrainSTEM during the data conversion process, ensuring that all relevant information is accurately captured and organized.  
 
-
-
-https://github.com/user-attachments/assets/29b77c0a-48cd-4097-8a57-d782d0fcbea6
-
-
+See the short [video demo](resources/dm_demo.mp4).  
 
 ### Installation
 * Clone this repository.  
