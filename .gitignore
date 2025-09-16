@@ -12,8 +12,7 @@ __pycache__/
 ~$*.xlsx
 **/~$*
 
-TODO
-
 # Additional ignores for local files
+TODO
 resources/demo.mp4
 resources/ffmpeg.txt

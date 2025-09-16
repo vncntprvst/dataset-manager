@@ -48,6 +48,12 @@ The application enforces data standards via two complementary schema layers:
 
 With those definitions in place, the app generates a session-oriented spreadsheet template (one row per recording session) for you to complete.
 
+### Integration with BrainSTEM 
+
+This application is designed to integrate seamlessly with the BrainSTEM platform, allowing for efficient data management and analysis. Users can easily import their notes and metadata from BrainSTEM during the data conversion process, ensuring that all relevant information is accurately captured and organized.
+
+
+
 ### Installation
 * Clone this repository.  
     `git clone https://github.com/vncntprvst/dataset-manager.git`
