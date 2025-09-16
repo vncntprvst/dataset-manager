@@ -11,13 +11,14 @@
 
 A user interface that helps bundle data and metadata based on experimental types, while ensuring compatibility with NWB / DANDI archive submission requirements.
 
-This project was created as part of the Team BRAIN Circuit Program (U19) NS137920: _High- and low-level computations for coordination of orofacial motor actions_
-
-🔗 [Project Website](https://rhythm-n-rodents.github.io/)
+This project was created as part of the Team BRAIN Circuit Program (U19) NS137920:  
+🔗 [_High- and low-level computations for coordination of orofacial motor actions_](https://rhythm-n-rodents.github.io/)
 
 ## Overview
 
 This application generates data collection templates and conversion scripts tailored to specific experimental types. Users select their experimental modalities, and the tool automatically creates spreadsheets with the appropriate metadata fields required for NWB file creation and DANDI archive submission, and then generates a script to convert the collected data into NWB format.
+
+<img width="863" height="899" alt="image" src="https://github.com/user-attachments/assets/2ab91c40-3f54-4e5d-b9c3-fc4c368acaa7" />
 
 ### Workflow
 
