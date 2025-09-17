@@ -1,6 +1,6 @@
 [project]
 name = "dataset-manager"
-version = "0.1.0"
+version = "0.1.1"
 description = "App to bundle data and metadata for U19 experiments' data conversion"
 readme = "README.md"
 requires-python = ">=3.11"
