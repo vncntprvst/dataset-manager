@@ -375,6 +375,13 @@ def _acq_options() -> Dict[str, List[str]]:
 # ------------------------------
 
 def _project_root() -> str:
+    # Prefer a user-selected root persisted in session state
+    try:
+        sel = st.session_state.get("project_root_active")
+        if isinstance(sel, str) and sel:
+            return sel
+    except Exception:
+        pass
     return os.environ.get("DM_PROJECT_ROOT", os.getcwd())
 
 
@@ -559,6 +566,39 @@ def _load_dataset_yaml(root: str) -> Dict[str, Any]:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
+
+
+def _load_project_yaml(root: str) -> Dict[str, Any]:
+    """Load project-scoped configuration from project.yaml if present.
+
+    Used to persist directory structure (level configs and recording depth).
+    """
+    path = os.path.join(root, "project.yaml")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _save_project_yaml(root: str, cfg: Dict[str, Any]) -> None:
+    """Persist selected project-level settings to project.yaml.
+
+    Only stores directory structure information to avoid leaking unrelated data.
+    """
+    path = os.path.join(root, "project.yaml")
+    os.makedirs(root, exist_ok=True)
+    save_obj = {
+        "recording_level_depth": int(cfg.get("recording_level_depth") or cfg.get("depth") or 0),
+        "level_configs": list(cfg.get("level_configs") or []),
+    }
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(save_obj, f)
+    except Exception:
+        pass
 
 
 def _save_json(path: str, obj: Any) -> None:
@@ -1000,7 +1040,10 @@ def _run_script_and_log(script_path: str, source: str, output: str, session_id: 
         log.write(f"Session: {session_id}\n")
         log.write(f"Source: {source}\nOutput: {output}\n\n")
         log.flush()
-        cmd = ["python", script_path, "--source", source, "--output", output, "--session-id", session_id]
+        # Use the same Python interpreter as the app to preserve environment and packages
+        py_exec = sys.executable or "python"
+        log.write(f"Python: {py_exec}\n")
+        cmd = [py_exec, script_path, "--source", source, "--output", output, "--session-id", session_id]
         if overwrite:
             cmd.append("--overwrite")
         try:
@@ -1586,24 +1629,73 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
     st.caption(
         "Configure your directory structure. The recording session level defines how deep your session folders are nested."
     )
-    
+
+    # Always allow selecting the project root directory
+    # Determine a sensible default
+    _mode = initial.get('_mode', '')
+    default_root = (
+        initial.get("project_root_dir")
+        or st.session_state.get("edit_root_dir")
+        or st.session_state.get("project_root_active")
+        or os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+    )
+    project_root_dir = st.text_input(
+        "Project root directory",
+        value=str(default_root),
+        placeholder="C:/path/to/project or /path/to/project",
+        key=f"rootdir_{_mode}",
+    )
+    # If the root directory selection changed, try loading dataset.yaml once for this root
+    _root_key = f"_proj_last_root_{_mode}"
+    last_root = st.session_state.get(_root_key)
+    if project_root_dir and project_root_dir != last_root:
+        ds_yaml = _load_dataset_yaml(project_root_dir)
+        depth_val = ds_yaml.get("recording_level_depth") if isinstance(ds_yaml, dict) else None
+        lvl_cfgs = ds_yaml.get("level_configs") if isinstance(ds_yaml, dict) else None
+        if depth_val is not None:
+            # Use a prefill key to avoid touching the widget key directly
+            st.session_state[f"_prefill_depth_{_mode}"] = int(depth_val)
+        if isinstance(lvl_cfgs, list) and lvl_cfgs:
+            st.session_state[f"level_configs_{_mode}"] = list(lvl_cfgs)
+        st.session_state[_root_key] = project_root_dir
+    # Keep global active root in sync for cross-page persistence (avoid writing to widget keys)
+    if isinstance(project_root_dir, str) and project_root_dir:
+        st.session_state["project_root_active"] = project_root_dir
+
     # Two-column layout
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("**Directory structure**")
         
-        # Level depth selector
+        # Level depth selector (determine default before creating the widget)
+        _mode = initial.get('_mode', '')
+        _depth_key = f"depth_{_mode}"
+        _prefill_key = f"_prefill_depth_{_mode}"
+        _init_depth = initial.get("recording_level_depth")
+        depth_default = st.session_state.get(_depth_key)
+        if depth_default is None:
+            if isinstance(_init_depth, int):
+                depth_default = int(_init_depth)
+            elif isinstance(st.session_state.get(_prefill_key), int):
+                depth_default = int(st.session_state.get(_prefill_key))
+            else:
+                depth_default = 3
         depth = st.number_input(
             "Level depth for Recording session, with respect to Project root",
             min_value=1,
             max_value=5,
-            value=3,
-            key=f"depth_{initial.get('_mode', '')}"
+            value=int(depth_default),
+            key=_depth_key,
         )
         
         # Initialize level configurations if not exist
         level_key = f"level_configs_{initial.get('_mode', '')}"
+        # Seed from initial (e.g., dataset.yaml or project.yaml) if provided for level configs
+        init_levels = initial.get("level_configs")
+        if isinstance(init_levels, list) and init_levels:
+            st.session_state[level_key] = init_levels
+
         if level_key not in st.session_state or len(st.session_state[level_key]) != depth:
             # Default configuration
             default_configs = [
@@ -1885,7 +1977,33 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
             messages.append("Folder structure looks consistent with the spec.")
         return ok, messages, stats
 
-    check_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+    # Determine base folder for structure check, preferring explicit user input
+    candidates = []
+    # Current form input (only set in 'new' mode in this UI, but include anyway)
+    if project_root_dir:
+        candidates.append(project_root_dir)
+    # Value coming from loaded dataset.yaml
+    if isinstance(initial.get("project_root_dir"), str):
+        candidates.append(str(initial.get("project_root_dir")))
+    # If the page has an Edit root text input elsewhere, it uses this key
+    if isinstance(st.session_state.get("edit_root_dir"), str):
+        candidates.append(str(st.session_state.get("edit_root_dir")))
+    # If the rootdir widget exists in session state for this mode, consider it
+    _maybe_root_key = f"rootdir_{initial.get('_mode','')}"
+    if isinstance(st.session_state.get(_maybe_root_key), str):
+        candidates.append(str(st.session_state.get(_maybe_root_key)))
+    # Fallbacks
+    candidates.append(os.environ.get("DM_PROJECT_ROOT", os.getcwd()))
+
+    # Pick the first that exists as a directory; otherwise first provided
+    check_root = None
+    for c in candidates:
+        if c and os.path.isdir(c):
+            check_root = c
+            break
+    if not check_root:
+        check_root = next((c for c in candidates if c), os.getcwd())
+
     st.caption(f"Structure check base: {check_root}")
     if st.button("Check folder structure against spec", key=f"check_folder_{initial.get('_mode','')}"):
         ok, messages, stats = _validate_folder_structure(tree_text, check_root, level_configs)
@@ -1900,19 +2018,6 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         for m in messages:
             (st.success if ok else st.warning)(m)
 
-    # In 'Create new dataset', allow selecting the project root directory
-    project_root_dir: str | None = None
-    if initial.get("_mode") == "new":
-        st.subheader("Project root directory")
-        st.caption("Select the folder that contains your project's data. The dataset.yaml will be created there.")
-        default_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
-        project_root_dir = st.text_input(
-            "Folder path",
-            value=str(default_root),
-            placeholder="C:/path/to/project or /path/to/project",
-            key=f"rootdir_{initial.get('_mode', '')}",
-        )
-
     return {
         "project_name": project_name,
         "experimenter": experimenter,
@@ -1922,7 +2027,8 @@ def _project_form(initial: Dict[str, Any]) -> Dict[str, Any]:
         "data_organization": tree_text,
         "recording_level_depth": int(depth),
         "level_configs": level_configs,
-        "project_root_dir": project_root_dir,
+        # Ensure we never write null for project_root_dir
+        "project_root_dir": project_root_dir or (initial.get("project_root_dir") or os.environ.get("DM_PROJECT_ROOT", os.getcwd())),
     }
 
 
@@ -1951,7 +2057,15 @@ def main() -> None:
         st.header("Project overview")
         st.caption("Describe your project organization and data formats.")
 
-        project_root = os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        # Resolve preferred project root
+        project_root = st.session_state.get("project_root_active") or os.environ.get("DM_PROJECT_ROOT", os.getcwd())
+        # If we just saved a new dataset to a specific root, honor it now and persist
+        if "just_saved_new_root" in st.session_state:
+            try:
+                project_root = st.session_state.pop("just_saved_new_root") or project_root
+                st.session_state["project_root_active"] = project_root
+            except Exception:
+                project_root = project_root
         dataset_path = os.path.join(project_root, "dataset.yaml")
         has_yaml = os.path.exists(dataset_path)
 
@@ -1974,19 +2088,18 @@ def main() -> None:
                     with open(target_path, "w", encoding="utf-8") as f:
                         yaml.safe_dump(data, f)
                     st.success(f"Saved to {target_path}")
+                    # After saving a new dataset, switch to Edit tab and reload
+                    st.session_state["just_saved_new_root"] = target_root
+                    st.session_state["project_root_active"] = target_root
+                    st.session_state["mode"] = "project"
+                    try:
+                        st.rerun()
+                    except Exception:
+                        st.experimental_rerun()
 
         with tab_edit:
-            # Allow user to adjust project root unless provided via launcher
-            provided_env = "DM_PROJECT_ROOT" in os.environ
-            edit_root = st.text_input(
-                "Project root directory",
-                value=project_root,
-                help=(
-                    "Folder containing dataset.yaml. "
-                    + ("Set by launcher; you can still change it here." if provided_env else "")
-                ),
-                key="edit_root_dir",
-            )
+            # Use the active project root; users can change it in the form itself
+            edit_root = project_root
             dataset_path = os.path.join(edit_root, "dataset.yaml")
             if os.path.exists(dataset_path):
                 try:
@@ -1994,6 +2107,19 @@ def main() -> None:
                         loaded = yaml.safe_load(f) or {}
                 except Exception:
                     loaded = {}
+                # If a project.yaml exists, merge directory structure from it
+                # Migrate directory structure from legacy project.yaml if present (read-only)
+                try:
+                    pj_path = os.path.join(edit_root, "project.yaml")
+                    if os.path.exists(pj_path):
+                        with open(pj_path, "r", encoding="utf-8") as _pf:
+                            pj = yaml.safe_load(_pf) or {}
+                        if pj.get("recording_level_depth") is not None:
+                            loaded.setdefault("recording_level_depth", int(pj.get("recording_level_depth")))
+                        if pj.get("level_configs") and not loaded.get("level_configs"):
+                            loaded["level_configs"] = pj.get("level_configs")
+                except Exception:
+                    pass
                 loaded["_mode"] = "edit"
                 data = _project_form(loaded)
                 if st.button("Save changes", key="save_edit"):
@@ -2008,9 +2134,15 @@ def main() -> None:
                             existing_all = {}
                         if isinstance(existing_all, dict) and "repository" in existing_all:
                             data["repository"] = existing_all.get("repository")
-                        with open(dataset_path, "w", encoding="utf-8") as f:
+                        # Write to the project root directory specified in the form
+                        target_root = data.get("project_root_dir") or edit_root
+                        target_path = os.path.join(target_root, "dataset.yaml")
+                        os.makedirs(target_root, exist_ok=True)
+                        with open(target_path, "w", encoding="utf-8") as f:
                             yaml.safe_dump(data, f)
-                        st.success(f"Updated {dataset_path}")
+                        st.session_state["project_root_active"] = target_root
+                        st.success(f"Updated {target_path}")
+                        # All project info/state is stored solely in dataset.yaml now
             else:
                 st.info(f"No dataset.yaml found in {edit_root}.")
         return
